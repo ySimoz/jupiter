@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="340" viewBox="0 0 1200 340"
+     role="img" aria-labelledby="title desc">
+  <title id="title">Jupiter 2-module + prebuilt libmpv architecture</title>
+  <desc id="desc">Architecture diagram showing the :app Kotlin Compose layer communicating with the :engine JNI wrapper and dynamically linking against prebuilt libmpv, FFmpeg, and libass shared libraries.</desc>
+
+  <rect width="1200" height="340" rx="24" fill="#090C12"/>
+  <rect x="1" y="1" width="1198" height="338" rx="23" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="1.5"/>
+
+  <text x="48" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24" font-weight="600" fill="#F2F5FA">2-Module Architecture &amp; Native Bridge</text>
+
+  <!-- Card 1: :app -->
+  <g transform="translate(48 80)">
+    <rect x="0" y="0" width="330" height="212" rx="16" fill="#141923" stroke="#E8D2B5" stroke-opacity="0.35" stroke-width="1.5"/>
+    <rect x="0" y="0" width="330" height="44" rx="16" fill="#1B2230"/>
+    <rect x="0" y="28" width="330" height="16" fill="#1B2230"/>
+    <text x="20" y="30" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="700" fill="#E8D2B5">:app  (Kotlin / Compose)</text>
+
+    <text x="20" y="78" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20" font-weight="600" fill="#F2F5FA">Screens &amp; System</text>
+    <text x="20" y="108" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#C5CEDB">Library · Playlists · Streams</text>
+    <text x="20" y="134" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#C5CEDB">Player HUD · Settings · PiP</text>
+    <text x="20" y="168" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#9AA4B2">Hilt · Room · DataStore</text>
+    <text x="20" y="194" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#9AA4B2">Haze · Coil 3 · Media</text>
+  </g>
+
+  <!-- Arrow 1 -->
+  <g transform="translate(386 166)">
+    <line x1="0" y1="20" x2="46" y2="20" stroke="#E49B4B" stroke-width="3"/>
+    <polygon points="44,12 58,20 44,28" fill="#E49B4B"/>
+    <text x="29" y="4" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#9AA4B2">Flow</text>
+  </g>
+
+  <!-- Card 2: :engine -->
+  <g transform="translate(452 80)">
+    <rect x="0" y="0" width="330" height="212" rx="16" fill="#141923" stroke="#E49B4B" stroke-opacity="0.45" stroke-width="1.5"/>
+    <rect x="0" y="0" width="330" height="44" rx="16" fill="#1B2230"/>
+    <rect x="0" y="28" width="330" height="16" fill="#1B2230"/>
+    <text x="20" y="30" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="700" fill="#E49B4B">:engine  (Kotlin + C11)</text>
+
+    <text x="20" y="78" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20" font-weight="600" fill="#F2F5FA">Lifecycle-Safe JNI Bridge</text>
+    <text x="20" y="108" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#C5CEDB">MpvEngine.kt · PlaybackState</text>
+    <text x="20" y="134" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#C5CEDB">MpvNative.kt · TrackModels</text>
+    <text x="20" y="168" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#9AA4B2">mpv_bridge.c · pthread</text>
+    <text x="20" y="194" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#9AA4B2">CMake 3.22.1 · NDK r27</text>
+  </g>
+
+  <!-- Arrow 2 -->
+  <g transform="translate(790 166)">
+    <line x1="0" y1="20" x2="46" y2="20" stroke="#C84B31" stroke-width="3"/>
+    <polygon points="44,12 58,20 44,28" fill="#C84B31"/>
+    <text x="29" y="4" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#9AA4B2">JNI</text>
+  </g>
+
+  <!-- Card 3: Prebuilt Core -->
+  <g transform="translate(856 80)">
+    <rect x="0" y="0" width="296" height="212" rx="16" fill="#141923" stroke="#C84B31" stroke-opacity="0.50" stroke-width="1.5"/>
+    <rect x="0" y="0" width="296" height="44" rx="16" fill="#1B2230"/>
+    <rect x="0" y="28" width="296" height="16" fill="#1B2230"/>
+    <text x="20" y="30" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="700" fill="#C84B31">Prebuilt Core</text>
+
+    <text x="20" y="78" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20" font-weight="600" fill="#F2F5FA">libmpv + FFmpeg</text>
+    <text x="20" y="108" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#C5CEDB">mpv v0.42.0 · FFmpeg 9.0.2</text>
+    <text x="20" y="134" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#C5CEDB">libass · MediaCodec HW+</text>
+    <text x="20" y="168" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#9AA4B2">fetch_libmpv.sh</text>
+    <text x="20" y="194" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#9AA4B2">SHA-256 verified ABIs</text>
+  </g>
+</svg>

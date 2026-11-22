@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">Jupiter logo (monochrome dark)</title>
+  <path fill="#090C12" d="M 50 86 V 46 Q 50 32 62.12 39 L 143.53 86 Z"/>
+  <path fill="#090C12" d="M 50 98 H 164.32 L 204.16 121 Q 216.28 128 204.16 135 L 164.32 158 H 50 Z"/>
+  <path fill="#090C12" d="M 50 170 H 143.53 L 62.12 217 Q 50 224 50 210 Z"/>
+</svg>

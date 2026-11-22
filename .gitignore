@@ -18,3 +18,4 @@
 *.keystore
 engine/src/main/jniLibs/
 engine/src/main/cpp/include/mpv/
+android_media_player_architecture_execution_plan.md
