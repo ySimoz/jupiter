@@ -3,6 +3,7 @@ package com.jupiter.app.feature.player
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -74,7 +75,7 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(mediaUri, title, isNetworkStream, headersJson) {
-        viewModel.loadMedia(
+        viewModel.loadInitialMediaIfNeeded(
             uri = mediaUri,
             title = title,
             isNetworkStream = isNetworkStream,
@@ -141,6 +142,8 @@ fun PlayerScreen(
     PlayerImmersiveBarsEffect(isHudVisible = !isInPipMode && uiState.isHudVisible && !uiState.isLocked)
     PlayerOrientationEffect(orientationLock = uiState.orientationLock)
 
+    var activeSurfaceView by remember { mutableStateOf<SurfaceView?>(null) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -150,6 +153,7 @@ fun PlayerScreen(
             onSurfaceAttached = viewModel::attachSurface,
             onSurfaceSizeChanged = viewModel::onSurfaceSizeChanged,
             onSurfaceDetached = viewModel::detachSurface,
+            onSurfaceViewChanged = { activeSurfaceView = it },
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -190,7 +194,6 @@ fun PlayerScreen(
                 onScrubFinish = viewModel::onScrubFinish,
                 onToggleRemainingTime = viewModel::toggleRemainingTime,
                 onSetSpeed = viewModel::setSpeed,
-                onCycleAspectMode = viewModel::cycleAspectMode,
                 onSetAspectMode = viewModel::setAspectMode,
                 onCycleOrientationLock = viewModel::cycleOrientationLock,
                 onToggleLock = viewModel::toggleLock,
@@ -210,6 +213,17 @@ fun PlayerScreen(
                 onClearAbLoop = viewModel::clearAbLoop,
                 onSetEqualizer = viewModel::setEqualizer,
                 onResetEqualizer = viewModel::resetEqualizer,
+                onPlayNextNow = viewModel::playNextNow,
+                onPlayPrevious = viewModel::playPrevious,
+                onPlayQueueIndex = viewModel::playQueueIndex,
+                onCancelUpNext = viewModel::cancelUpNext,
+                onAutoPlayNextChange = viewModel::setAutoPlayNext,
+                onAddBookmark = viewModel::addBookmark,
+                onRenameBookmark = viewModel::renameBookmark,
+                onDeleteBookmark = viewModel::deleteBookmark,
+                onJumpToBookmark = viewModel::jumpToBookmark,
+                onCaptureFrame = { viewModel.captureFrame(activeSurfaceView) },
+                onDismissStatusMessage = viewModel::dismissStatusMessage,
                 onSheetVisibilityChanged = viewModel::onSheetVisibilityChanged,
                 onRetry = viewModel::retryLoad,
                 onDismissError = viewModel::dismissError,

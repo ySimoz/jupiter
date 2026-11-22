@@ -4,6 +4,7 @@ import com.jupiter.app.data.local.MediaHistoryEntity
 import com.jupiter.app.data.media.LibrarySortOption
 import com.jupiter.app.data.media.LocalFolderSummary
 import com.jupiter.app.data.media.LocalVideoItem
+import com.jupiter.app.data.repository.InMemoryPlaylistRepository
 import com.jupiter.app.data.repository.MediaRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -28,6 +29,7 @@ class LibraryViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var fakeRepository: FakeMediaRepository
+    private lateinit var playlistRepository: InMemoryPlaylistRepository
     private lateinit var viewModel: LibraryViewModel
 
     private val sampleVideos = listOf(
@@ -70,7 +72,11 @@ class LibraryViewModelTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         fakeRepository = FakeMediaRepository(videos = sampleVideos)
-        viewModel = LibraryViewModel(mediaRepository = fakeRepository)
+        playlistRepository = InMemoryPlaylistRepository()
+        viewModel = LibraryViewModel(
+            mediaRepository = fakeRepository,
+            playlistRepository = playlistRepository,
+        )
     }
 
     @After
@@ -439,6 +445,61 @@ class LibraryViewModelTest {
         assertTrue(viewModel.uiState.value.manageFoldersOpen)
         viewModel.dismissManageFolders()
         assertFalse(viewModel.uiState.value.manageFoldersOpen)
+    }
+
+    @Test
+    fun `addVideoToPlaylist and createPlaylistAndAddVideo persist items and emit feedback`() = runTest {
+        val existingId = playlistRepository.createPlaylist("Watch Later")
+        viewModel.onPermissionResult(true)
+        runCurrent()
+
+        assertEquals(listOf("Watch Later"), viewModel.uiState.value.playlists.map { it.name })
+
+        val video = sampleVideos.first()
+        viewModel.addVideoToPlaylist(existingId, video)
+        runCurrent()
+
+        assertEquals("Added to Watch Later", viewModel.uiState.value.feedbackMessage)
+        val items = playlistRepository.getPlaylistItems(existingId)
+        assertEquals(1, items.size)
+        assertEquals(video.contentUri, items.single().mediaUri)
+        assertEquals(video.displayName, items.single().title)
+        assertFalse(items.single().isNetworkStream)
+        assertEquals(video.durationMs, items.single().durationMs)
+
+        viewModel.dismissFeedback()
+        assertNull(viewModel.uiState.value.feedbackMessage)
+
+        viewModel.createPlaylistAndAddVideo("  Night Queue  ", sampleVideos[1])
+        runCurrent()
+
+        assertEquals("Added to Night Queue", viewModel.uiState.value.feedbackMessage)
+        val createdSummary = viewModel.uiState.value.playlists.first { it.name == "Night Queue" }
+        assertEquals(1, createdSummary.videoCount)
+    }
+
+    @Test
+    fun `addFolderToPlaylist and createPlaylistAndAddFolder add folder videos in current sort order`() = runTest {
+        val existingId = playlistRepository.createPlaylist("Movie Night")
+        viewModel.onPermissionResult(true)
+        viewModel.setSortOption(LibrarySortOption.NAME)
+        runCurrent()
+
+        viewModel.addFolderToPlaylist(existingId, "Movies")
+        runCurrent()
+
+        assertEquals("Added to Movie Night", viewModel.uiState.value.feedbackMessage)
+        val items = playlistRepository.getPlaylistItems(existingId)
+        assertEquals(listOf("Alpha Sintel.mkv", "Big Buck Bunny.mkv"), items.map { it.title })
+
+        viewModel.setSortOption(LibrarySortOption.DATE)
+        viewModel.createPlaylistAndAddFolder("Recent Movies", "Movies")
+        runCurrent()
+
+        assertEquals("Added to Recent Movies", viewModel.uiState.value.feedbackMessage)
+        val recentSummary = viewModel.uiState.value.playlists.first { it.name == "Recent Movies" }
+        val recentItems = playlistRepository.getPlaylistItems(recentSummary.id)
+        assertEquals(listOf("Big Buck Bunny.mkv", "Alpha Sintel.mkv"), recentItems.map { it.title })
     }
 
     private class FakeMediaRepository(

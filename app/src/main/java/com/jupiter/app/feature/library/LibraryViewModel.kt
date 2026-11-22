@@ -3,10 +3,14 @@ package com.jupiter.app.feature.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.app.data.local.MediaHistoryEntity
+import com.jupiter.app.data.local.PlaylistSummary
 import com.jupiter.app.data.media.LibrarySortOption
 import com.jupiter.app.data.media.LocalFolderSummary
 import com.jupiter.app.data.media.LocalVideoItem
+import com.jupiter.app.data.repository.InMemoryPlaylistRepository
 import com.jupiter.app.data.repository.MediaRepository
+import com.jupiter.app.data.repository.PlaylistMediaInput
+import com.jupiter.app.data.repository.PlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +46,8 @@ data class LibraryUiState(
     val customFolders: List<CustomFolderEntry> = emptyList(),
     val manageFoldersOpen: Boolean = false,
     val visibleVideos: List<LocalVideoItem> = emptyList(),
+    val playlists: List<PlaylistSummary> = emptyList(),
+    val feedbackMessage: String? = null,
 )
 
 object LibraryFilterEngine {
@@ -129,7 +135,15 @@ object LibraryFilterEngine {
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val mediaRepository: MediaRepository,
+    private val playlistRepository: PlaylistRepository,
 ) : ViewModel() {
+
+    internal constructor(
+        mediaRepository: MediaRepository,
+    ) : this(
+        mediaRepository = mediaRepository,
+        playlistRepository = InMemoryPlaylistRepository(),
+    )
 
     private val _uiState = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
@@ -139,6 +153,11 @@ class LibraryViewModel @Inject constructor(
     private var scanJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            playlistRepository.observePlaylists().collect { playlists ->
+                _uiState.update { it.copy(playlists = playlists) }
+            }
+        }
         viewModelScope.launch {
             mediaRepository.observeContinueWatching(limit = 20).collect { history ->
                 _uiState.update { it.copy(continueWatching = history) }
@@ -340,6 +359,72 @@ class LibraryViewModel @Inject constructor(
             mediaRepository.removeHistory(uri)
         }
     }
+
+    fun addVideoToPlaylist(playlistId: Long, video: LocalVideoItem) {
+        viewModelScope.launch {
+            playlistRepository.addItem(playlistId, video.toPlaylistMediaInput())
+            val playlistName = _uiState.value.playlists.firstOrNull { it.id == playlistId }?.name ?: "playlist"
+            _uiState.update { it.copy(feedbackMessage = "Added to $playlistName") }
+        }
+    }
+
+    fun addFolderToPlaylist(playlistId: Long, folderName: String) {
+        val state = _uiState.value
+        val videos = LibraryFilterEngine.filterVideos(
+            videos = cachedVideos,
+            selectedFolder = folderName,
+            searchQuery = state.searchQuery,
+            sortOption = state.sortOption,
+            hiddenFolders = state.hiddenFolders + state.removedFolders,
+        )
+        if (videos.isEmpty()) return
+        viewModelScope.launch {
+            playlistRepository.addItems(playlistId, videos.map { it.toPlaylistMediaInput() })
+            val playlistName = _uiState.value.playlists.firstOrNull { it.id == playlistId }?.name ?: "playlist"
+            _uiState.update { it.copy(feedbackMessage = "Added to $playlistName") }
+        }
+    }
+
+    fun createPlaylistAndAddVideo(name: String, video: LocalVideoItem) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val playlistId = playlistRepository.createPlaylist(trimmed)
+            playlistRepository.addItem(playlistId, video.toPlaylistMediaInput())
+            _uiState.update { it.copy(feedbackMessage = "Added to $trimmed") }
+        }
+    }
+
+    fun createPlaylistAndAddFolder(name: String, folderName: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        val state = _uiState.value
+        val videos = LibraryFilterEngine.filterVideos(
+            videos = cachedVideos,
+            selectedFolder = folderName,
+            searchQuery = state.searchQuery,
+            sortOption = state.sortOption,
+            hiddenFolders = state.hiddenFolders + state.removedFolders,
+        )
+        if (videos.isEmpty()) return
+        viewModelScope.launch {
+            val playlistId = playlistRepository.createPlaylist(trimmed)
+            playlistRepository.addItems(playlistId, videos.map { it.toPlaylistMediaInput() })
+            _uiState.update { it.copy(feedbackMessage = "Added to $trimmed") }
+        }
+    }
+
+    fun dismissFeedback() {
+        _uiState.update { it.copy(feedbackMessage = null) }
+    }
+
+    private fun LocalVideoItem.toPlaylistMediaInput(): PlaylistMediaInput = PlaylistMediaInput(
+        mediaUri = contentUri,
+        title = displayName,
+        isNetworkStream = false,
+        headersJson = null,
+        durationMs = durationMs,
+    )
 
     private fun recomputeDerivedState(isLoading: Boolean? = null) {
         _uiState.update { state ->

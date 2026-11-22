@@ -155,6 +155,7 @@ fun SettingsScreen(
         onSelectHwDecMode = viewModel::setHwDecMode,
         onSelectDefaultSpeed = viewModel::setDefaultPlaybackSpeed,
         onRememberResumeChange = viewModel::setRememberResumePosition,
+        onAutoPlayNextChange = viewModel::setAutoPlayNext,
         onBackgroundPlayChange = viewModel::setBackgroundPlayEnabled,
         onAutoEnterPipChange = viewModel::setAutoEnterPip,
         onGestureBrightnessChange = viewModel::setGestureBrightnessEnabled,
@@ -190,6 +191,7 @@ internal fun SettingsContent(
     onSelectHwDecMode: (HwDecMode) -> Unit,
     onSelectDefaultSpeed: (Float) -> Unit,
     onRememberResumeChange: (Boolean) -> Unit,
+    onAutoPlayNextChange: (Boolean) -> Unit,
     onBackgroundPlayChange: (Boolean) -> Unit,
     onAutoEnterPipChange: (Boolean) -> Unit,
     onGestureBrightnessChange: (Boolean) -> Unit,
@@ -253,6 +255,7 @@ internal fun SettingsContent(
                     onSelectHwDecMode = onSelectHwDecMode,
                     onSelectDefaultSpeed = onSelectDefaultSpeed,
                     onRememberResumeChange = onRememberResumeChange,
+                    onAutoPlayNextChange = onAutoPlayNextChange,
                     onBackgroundPlayChange = onBackgroundPlayChange,
                     onAutoEnterPipChange = onAutoEnterPipChange,
                 )
@@ -385,6 +388,7 @@ private fun PlaybackSettingsCard(
     onSelectHwDecMode: (HwDecMode) -> Unit,
     onSelectDefaultSpeed: (Float) -> Unit,
     onRememberResumeChange: (Boolean) -> Unit,
+    onAutoPlayNextChange: (Boolean) -> Unit,
     onBackgroundPlayChange: (Boolean) -> Unit,
     onAutoEnterPipChange: (Boolean) -> Unit,
 ) {
@@ -427,6 +431,12 @@ private fun PlaybackSettingsCard(
             label = "Remember resume position",
             checked = preferences.rememberResumePosition,
             onCheckedChange = onRememberResumeChange,
+        )
+
+        SettingsSwitchRow(
+            label = "Auto-play next",
+            checked = preferences.autoPlayNext,
+            onCheckedChange = onAutoPlayNextChange,
         )
 
         SettingsSwitchRow(
@@ -1259,6 +1269,7 @@ private fun SettingsPhonePreview() {
                 onSelectHwDecMode = {},
                 onSelectDefaultSpeed = {},
                 onRememberResumeChange = {},
+                onAutoPlayNextChange = {},
                 onBackgroundPlayChange = {},
                 onAutoEnterPipChange = {},
                 onGestureBrightnessChange = {},
@@ -1301,6 +1312,7 @@ private fun SettingsTabletPreview() {
                     onSelectHwDecMode = {},
                     onSelectDefaultSpeed = {},
                     onRememberResumeChange = {},
+                    onAutoPlayNextChange = {},
                     onBackgroundPlayChange = {},
                     onAutoEnterPipChange = {},
                     onGestureBrightnessChange = {},

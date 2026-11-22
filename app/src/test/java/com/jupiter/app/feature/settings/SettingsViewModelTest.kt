@@ -68,11 +68,13 @@ class SettingsViewModelTest {
         assertEquals(0xFF090C12.toInt(), viewModel.uiState.value.preferences.backgroundArgb)
         assertEquals(0xFFE6ECF5.toInt(), viewModel.uiState.value.preferences.accentArgb)
         assertEquals(GlassStyle.FROSTED, viewModel.uiState.value.preferences.glassStyle)
+        assertTrue(viewModel.uiState.value.preferences.autoPlayNext)
 
         viewModel.setHwDecMode(HwDecMode.MEDIACODEC)
         viewModel.setDoubleTapSeekSec(15)
         viewModel.setDefaultPlaybackSpeed(1.5f)
         viewModel.setRememberResumePosition(false)
+        viewModel.setAutoPlayNext(false)
         viewModel.setBackgroundPlayEnabled(false)
         viewModel.setAutoEnterPip(false)
         viewModel.setSubtitleFontScale(1.8f)
@@ -92,6 +94,7 @@ class SettingsViewModelTest {
         assertEquals(15, prefs.doubleTapSeekSec)
         assertEquals(1.5f, prefs.defaultPlaybackSpeed, 0.001f)
         assertFalse(prefs.rememberResumePosition)
+        assertFalse(prefs.autoPlayNext)
         assertFalse(prefs.backgroundPlayEnabled)
         assertFalse(prefs.autoEnterPip)
         assertEquals(1.8f, prefs.subtitleFontScale, 0.001f)
@@ -112,6 +115,10 @@ class SettingsViewModelTest {
         viewModel.setCornerRoundnessPercent(-10)
         runCurrent()
         assertEquals(0, viewModel.uiState.value.preferences.cornerRoundnessPercent)
+
+        viewModel.setAutoPlayNext(true)
+        runCurrent()
+        assertTrue(viewModel.uiState.value.preferences.autoPlayNext)
     }
 
     @Test

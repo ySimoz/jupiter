@@ -3,6 +3,10 @@ package com.jupiter.app.feature.streams
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.app.data.local.NetworkStreamEntity
+import com.jupiter.app.data.local.PlaylistSummary
+import com.jupiter.app.data.repository.InMemoryPlaylistRepository
+import com.jupiter.app.data.repository.PlaylistMediaInput
+import com.jupiter.app.data.repository.PlaylistRepository
 import com.jupiter.app.data.repository.StreamHeaderConfig
 import com.jupiter.app.data.repository.StreamRepository
 import com.jupiter.app.data.repository.StreamUrlValidator
@@ -43,12 +47,22 @@ data class StreamsUiState(
     val pinnedStreams: List<NetworkStreamEntity> = emptyList(),
     val savedStreams: List<NetworkStreamEntity> = emptyList(),
     val editor: StreamEditorState? = null,
+    val playlists: List<PlaylistSummary> = emptyList(),
+    val feedbackMessage: String? = null,
 )
 
 @HiltViewModel
 class StreamsViewModel @Inject constructor(
     private val streamRepository: StreamRepository,
+    private val playlistRepository: PlaylistRepository,
 ) : ViewModel() {
+
+    internal constructor(
+        streamRepository: StreamRepository,
+    ) : this(
+        streamRepository = streamRepository,
+        playlistRepository = InMemoryPlaylistRepository(),
+    )
 
     private val _uiState = MutableStateFlow(StreamsUiState())
     val uiState: StateFlow<StreamsUiState> = _uiState.asStateFlow()
@@ -56,6 +70,11 @@ class StreamsViewModel @Inject constructor(
     private var nextHeaderRowId = 1
 
     init {
+        viewModelScope.launch {
+            playlistRepository.observePlaylists().collect { playlists ->
+                _uiState.update { it.copy(playlists = playlists) }
+            }
+        }
         viewModelScope.launch {
             streamRepository.observeStreams().collect { streams ->
                 val pinned = streams.filter { it.isPinned }
@@ -294,6 +313,46 @@ class StreamsViewModel @Inject constructor(
             url = stream.url,
             title = title,
             headersJson = headersJson,
+        )
+    }
+
+    fun addStreamToPlaylist(playlistId: Long, stream: NetworkStreamEntity) {
+        viewModelScope.launch {
+            playlistRepository.addItem(playlistId, stream.toPlaylistMediaInput())
+            val playlistName = _uiState.value.playlists.firstOrNull { it.id == playlistId }?.name ?: "playlist"
+            _uiState.update { it.copy(feedbackMessage = "Added to $playlistName") }
+        }
+    }
+
+    fun createPlaylistAndAddStream(name: String, stream: NetworkStreamEntity) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val playlistId = playlistRepository.createPlaylist(trimmed)
+            playlistRepository.addItem(playlistId, stream.toPlaylistMediaInput())
+            _uiState.update { it.copy(feedbackMessage = "Added to $trimmed") }
+        }
+    }
+
+    fun dismissFeedback() {
+        _uiState.update { it.copy(feedbackMessage = null) }
+    }
+
+    private fun NetworkStreamEntity.toPlaylistMediaInput(): PlaylistMediaInput {
+        val resolvedTitle = title.trim().ifEmpty {
+            StreamUrlValidator.deriveDisplayTitle(url)
+        }
+        val headersJson = StreamHeaderConfig(
+            userAgent = userAgent,
+            referer = referer,
+            headers = StreamHeaderConfig.parseHeadersMap(customHeadersJson),
+        ).toJsonOrNull()
+        return PlaylistMediaInput(
+            mediaUri = url,
+            title = resolvedTitle,
+            isNetworkStream = true,
+            headersJson = headersJson,
+            durationMs = 0L,
         )
     }
 }

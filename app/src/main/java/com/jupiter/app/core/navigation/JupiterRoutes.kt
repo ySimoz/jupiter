@@ -6,6 +6,9 @@ import kotlinx.serialization.Serializable
 data object LibraryRoute
 
 @Serializable
+data object PlaylistsRoute
+
+@Serializable
 data object StreamsRoute
 
 @Serializable

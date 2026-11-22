@@ -23,6 +23,7 @@ import com.jupiter.app.data.repository.SettingsRepository
 import com.jupiter.app.feature.player.AndroidPipHostController
 import com.jupiter.app.feature.player.LocalIsInPipMode
 import com.jupiter.app.feature.player.LocalPipHostController
+import com.jupiter.app.feature.player.PlaybackQueueManager
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -31,6 +32,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var settingsRepository: SettingsRepository
+
+    @Inject
+    lateinit var playbackQueueManager: PlaybackQueueManager
 
     private var pendingExternalLaunch by mutableStateOf<ExternalMediaLaunch?>(null)
     private var isInPipMode by mutableStateOf(false)
@@ -63,6 +67,7 @@ class MainActivity : ComponentActivity() {
                         adaptiveInfo = adaptiveInfo,
                         pendingExternalLaunch = pendingExternalLaunch,
                         onExternalLaunchConsumed = { pendingExternalLaunch = null },
+                        playbackQueueManager = playbackQueueManager,
                     )
                 }
             }

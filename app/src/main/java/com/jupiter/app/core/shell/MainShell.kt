@@ -32,8 +32,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.PlaylistPlay
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.VideoLibrary
@@ -95,10 +97,15 @@ import com.jupiter.app.core.designsystem.LocalJupiterPalette
 import com.jupiter.app.core.designsystem.LocalJupiterShapes
 import com.jupiter.app.core.navigation.LibraryRoute
 import com.jupiter.app.core.navigation.PlayerRoute
+import com.jupiter.app.core.navigation.PlaylistsRoute
 import com.jupiter.app.core.navigation.SettingsRoute
 import com.jupiter.app.core.navigation.StreamsRoute
 import com.jupiter.app.feature.library.LibraryScreen
+import com.jupiter.app.feature.player.PlaybackQueueManager
 import com.jupiter.app.feature.player.PlayerScreen
+import com.jupiter.app.feature.player.QueueMediaItem
+import com.jupiter.app.feature.player.QueueSourceKind
+import com.jupiter.app.feature.playlists.PlaylistsScreen
 import com.jupiter.app.feature.settings.SettingsScreen
 import com.jupiter.app.feature.streams.StreamsScreen
 import dev.chrisbanes.haze.HazeState
@@ -120,6 +127,7 @@ private enum class TopLevelDestination(
     val route: Any,
 ) {
     LIBRARY("Library", Icons.Outlined.VideoLibrary, LibraryRoute),
+    PLAYLISTS("Playlists", Icons.AutoMirrored.Outlined.PlaylistPlay, PlaylistsRoute),
     STREAMS("Streams", Icons.Outlined.Public, StreamsRoute),
     SETTINGS("Settings", Icons.Outlined.Settings, SettingsRoute),
 }
@@ -128,6 +136,7 @@ private fun NavDestination?.isDestinationSelected(destination: TopLevelDestinati
     if (this == null) return false
     return when (destination) {
         TopLevelDestination.LIBRARY -> hasRoute<LibraryRoute>()
+        TopLevelDestination.PLAYLISTS -> hasRoute<PlaylistsRoute>()
         TopLevelDestination.STREAMS -> hasRoute<StreamsRoute>()
         TopLevelDestination.SETTINGS -> hasRoute<SettingsRoute>()
     }
@@ -138,6 +147,7 @@ fun MainShell(
     adaptiveInfo: JupiterAdaptiveInfo = LocalJupiterAdaptiveInfo.current,
     pendingExternalLaunch: ExternalMediaLaunch? = null,
     onExternalLaunchConsumed: () -> Unit = {},
+    playbackQueueManager: PlaybackQueueManager = remember { PlaybackQueueManager() },
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -159,6 +169,14 @@ fun MainShell(
     }
 
     val openPlayer: (String, String, Boolean, String?) -> Unit = { uri, title, isNetworkStream, headersJson ->
+        playbackQueueManager.setSingle(
+            QueueMediaItem(
+                uri = uri,
+                title = title,
+                isNetworkStream = isNetworkStream,
+                headersJson = headersJson,
+            )
+        )
         navController.navigate(
             PlayerRoute(
                 mediaUri = uri,
@@ -169,12 +187,36 @@ fun MainShell(
         )
     }
 
+    val openQueue: (List<QueueMediaItem>, Int, String, QueueSourceKind) -> Unit =
+        { items, startIndex, sourceTitle, sourceKind ->
+            if (items.isNotEmpty()) {
+                val resolvedIndex = startIndex.coerceIn(0, items.lastIndex)
+                val target = items[resolvedIndex]
+                playbackQueueManager.setQueue(items, resolvedIndex, sourceTitle, sourceKind)
+                navController.navigate(
+                    PlayerRoute(
+                        mediaUri = target.uri,
+                        title = target.title,
+                        isNetworkStream = target.isNetworkStream,
+                        headersJson = target.headersJson,
+                    )
+                )
+            }
+        }
+
     LaunchedEffect(pendingExternalLaunch) {
         val launch = pendingExternalLaunch ?: return@LaunchedEffect
         val isNetwork = launch.isNetworkStream ||
             launch.uri.startsWith("http://", ignoreCase = true) ||
             launch.uri.startsWith("https://", ignoreCase = true) ||
             launch.uri.startsWith("rtsp://", ignoreCase = true)
+        playbackQueueManager.setSingle(
+            QueueMediaItem(
+                uri = launch.uri,
+                title = launch.title,
+                isNetworkStream = isNetwork,
+            )
+        )
         val currentlyInPlayer = navController.currentDestination?.hasRoute<PlayerRoute>() == true
         navController.navigate(
             PlayerRoute(
@@ -253,6 +295,17 @@ fun MainShell(
                                     uri.startsWith("rtsp://", ignoreCase = true)
                                 openPlayer(uri, title, isNetwork, null)
                             },
+                            onOpenQueue = { items, startIndex, sourceTitle ->
+                                openQueue(items, startIndex, sourceTitle, QueueSourceKind.FOLDER)
+                            },
+                        )
+                    }
+                    composable<PlaylistsRoute> {
+                        PlaylistsScreen(
+                            contentPadding = contentPadding,
+                            onOpenQueue = { items, startIndex, sourceTitle ->
+                                openQueue(items, startIndex, sourceTitle, QueueSourceKind.PLAYLIST)
+                            },
                         )
                     }
                     composable<StreamsRoute> {
@@ -300,7 +353,7 @@ fun MainShell(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
-                                .padding(horizontal = 24.dp, vertical = 16.dp),
+                                .padding(horizontal = 16.dp, vertical = 16.dp),
                         )
                     }
 
@@ -655,7 +708,8 @@ private fun BottomGlassNavigationBar(
                     if (destination == TopLevelDestination.SETTINGS) {
                         Box(
                             modifier = boundsModifier
-                                .size(48.dp)
+                                .width(48.dp)
+                                .height(52.dp)
                                 .clip(itemShape)
                                 .semantics {
                                     selected = isSelected
@@ -675,9 +729,10 @@ private fun BottomGlassNavigationBar(
                             )
                         }
                     } else {
-                        Row(
+                        Column(
                             modifier = boundsModifier
-                                .height(48.dp)
+                                .height(52.dp)
+                                .widthIn(min = 68.dp)
                                 .clip(itemShape)
                                 .semantics {
                                     selected = isSelected
@@ -687,9 +742,9 @@ private fun BottomGlassNavigationBar(
                                     role = Role.Tab,
                                     onClick = { onSelect(destination.route) },
                                 )
-                                .padding(horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                .padding(horizontal = 10.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Icon(
                                 imageVector = destination.icon,
@@ -697,13 +752,14 @@ private fun BottomGlassNavigationBar(
                                 tint = iconTint,
                                 modifier = Modifier.size(18.dp),
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = destination.label,
-                                style = MaterialTheme.typography.labelLarge,
+                                style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Medium,
                                 color = labelColor,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                                softWrap = false,
                             )
                         }
                     }

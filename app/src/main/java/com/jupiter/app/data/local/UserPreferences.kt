@@ -9,6 +9,7 @@ data class UserPreferences(
     val doubleTapSeekSec: Int = 10,
     val defaultPlaybackSpeed: Float = 1.0f,
     val rememberResumePosition: Boolean = true,
+    val autoPlayNext: Boolean = true,
     val backgroundPlayEnabled: Boolean = true,
     val autoEnterPip: Boolean = true,
     val subtitleFontScale: Float = 1.0f,

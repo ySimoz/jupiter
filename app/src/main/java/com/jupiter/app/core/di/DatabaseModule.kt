@@ -10,6 +10,8 @@ import com.jupiter.app.data.local.JupiterDatabase
 import com.jupiter.app.data.local.LibraryFolderPreferences
 import com.jupiter.app.data.local.MediaHistoryDao
 import com.jupiter.app.data.local.NetworkStreamDao
+import com.jupiter.app.data.local.PlaylistDao
+import com.jupiter.app.data.local.VideoBookmarkDao
 import com.jupiter.app.data.media.AndroidSafFolderScanner
 import com.jupiter.app.data.media.AndroidUriResolver
 import com.jupiter.app.data.media.LocalMediaScanner
@@ -18,10 +20,14 @@ import com.jupiter.app.data.media.SafFolderScanner
 import com.jupiter.app.data.media.UriResolver
 import com.jupiter.app.data.repository.DataStoreSettingsRepository
 import com.jupiter.app.data.repository.DefaultMediaRepository
+import com.jupiter.app.data.repository.DefaultPlaylistRepository
 import com.jupiter.app.data.repository.DefaultStreamRepository
+import com.jupiter.app.data.repository.DefaultVideoBookmarkRepository
 import com.jupiter.app.data.repository.MediaRepository
+import com.jupiter.app.data.repository.PlaylistRepository
 import com.jupiter.app.data.repository.SettingsRepository
 import com.jupiter.app.data.repository.StreamRepository
+import com.jupiter.app.data.repository.VideoBookmarkRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -48,7 +54,8 @@ object DatabaseModule {
             context,
             JupiterDatabase::class.java,
             "jupiter.db",
-        ).build()
+        ).addMigrations(JupiterDatabase.MIGRATION_1_2)
+            .build()
 
     @Provides
     fun provideMediaHistoryDao(database: JupiterDatabase): MediaHistoryDao =
@@ -57,6 +64,14 @@ object DatabaseModule {
     @Provides
     fun provideNetworkStreamDao(database: JupiterDatabase): NetworkStreamDao =
         database.networkStreamDao()
+
+    @Provides
+    fun providePlaylistDao(database: JupiterDatabase): PlaylistDao =
+        database.playlistDao()
+
+    @Provides
+    fun provideVideoBookmarkDao(database: JupiterDatabase): VideoBookmarkDao =
+        database.videoBookmarkDao()
 
     @Provides
     @Singleton
@@ -99,6 +114,22 @@ object DatabaseModule {
         networkStreamDao: NetworkStreamDao,
     ): StreamRepository = DefaultStreamRepository(
         networkStreamDao = networkStreamDao,
+    )
+
+    @Provides
+    @Singleton
+    fun providePlaylistRepository(
+        playlistDao: PlaylistDao,
+    ): PlaylistRepository = DefaultPlaylistRepository(
+        playlistDao = playlistDao,
+    )
+
+    @Provides
+    @Singleton
+    fun provideVideoBookmarkRepository(
+        videoBookmarkDao: VideoBookmarkDao,
+    ): VideoBookmarkRepository = DefaultVideoBookmarkRepository(
+        videoBookmarkDao = videoBookmarkDao,
     )
 
     @Provides

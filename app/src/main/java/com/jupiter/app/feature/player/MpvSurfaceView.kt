@@ -27,15 +27,18 @@ fun MpvSurfaceView(
     onSurfaceSizeChanged: (Int, Int) -> Unit,
     onSurfaceDetached: () -> Unit,
     modifier: Modifier = Modifier,
+    onSurfaceViewChanged: (SurfaceView?) -> Unit = {},
 ) {
     val currentOnAttached by rememberUpdatedState(onSurfaceAttached)
     val currentOnSizeChanged by rememberUpdatedState(onSurfaceSizeChanged)
     val currentOnDetached by rememberUpdatedState(onSurfaceDetached)
+    val currentOnSurfaceViewChanged by rememberUpdatedState(onSurfaceViewChanged)
 
     val context = LocalContext.current
     val surfaceView = remember(context) { SurfaceView(context) }
 
     DisposableEffect(surfaceView) {
+        currentOnSurfaceViewChanged(surfaceView)
         var isAttached = false
         val callback = object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
@@ -75,6 +78,7 @@ fun MpvSurfaceView(
         }
 
         onDispose {
+            currentOnSurfaceViewChanged(null)
             surfaceView.holder.removeCallback(callback)
             if (isAttached) {
                 isAttached = false

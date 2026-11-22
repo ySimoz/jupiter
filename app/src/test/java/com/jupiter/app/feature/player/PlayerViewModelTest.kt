@@ -1,6 +1,7 @@
 package com.jupiter.app.feature.player
 
 import android.view.Surface
+import android.view.SurfaceView
 import com.jupiter.app.core.di.PlaybackController
 import com.jupiter.app.data.local.MediaHistoryEntity
 import com.jupiter.app.data.local.UserPreferences
@@ -9,6 +10,7 @@ import com.jupiter.app.data.media.MpvSource
 import com.jupiter.app.data.media.UriHash
 import com.jupiter.app.data.media.UriResolver
 import com.jupiter.app.data.repository.InMemorySettingsRepository
+import com.jupiter.app.data.repository.InMemoryVideoBookmarkRepository
 import com.jupiter.app.data.repository.MediaRepository
 import com.jupiter.app.data.repository.ResumeRules
 import com.jupiter.app.data.repository.StreamHeaderConfig
@@ -22,6 +24,7 @@ import com.jupiter.engine.MpvEvent
 import com.jupiter.engine.MpvNative
 import com.jupiter.engine.PlaybackState
 import com.jupiter.engine.SubtitleTrack
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -1288,13 +1291,363 @@ class PlayerViewModelTest {
         assertEquals(1, serviceLauncher.stopCount)
     }
 
-    private fun allocateTestSurface(): Surface {
+    @Test
+    fun `autoPlayNext counts down 5s on EndFile EOF and advances queue`() = runTest {
+        val queueManager = PlaybackQueueManager()
+        val items = listOf(
+            QueueMediaItem(uri = "file:///ep1.mkv", title = "Episode 1"),
+            QueueMediaItem(uri = "file:///ep2.mkv", title = "Episode 2"),
+        )
+        queueManager.setQueue(items, startIndex = 0, sourceTitle = "Season 1", sourceKind = QueueSourceKind.FOLDER)
+        val vm = PlayerViewModel(
+            playbackController = fakeController,
+            configDir = "/tmp/jupiter-mpv-test",
+            playbackQueueManager = queueManager,
+            persistenceDispatcher = testDispatcher,
+        )
+
+        vm.loadInitialMediaIfNeeded(uri = "file:///ep1.mkv", title = "Episode 1")
+        runCurrent()
+        fakeController.emitEvent(MpvEvent.FileLoaded)
+        fakeController.emitState { it.copy(durationMs = 60_000L, positionMs = 60_000L, isPaused = false) }
+        runCurrent()
+
+        fakeController.emitEvent(MpvEvent.EndFile(MpvNative.END_FILE_REASON_EOF, 0))
+        runCurrent()
+
+        assertEquals(items[1], vm.uiState.value.upNextItem)
+        assertEquals(5, vm.uiState.value.upNextCountdownSec)
+
+        for (expectedSec in 4 downTo 1) {
+            advanceTimeBy(1_000L)
+            runCurrent()
+            assertEquals(expectedSec, vm.uiState.value.upNextCountdownSec)
+            assertEquals(items[1], vm.uiState.value.upNextItem)
+        }
+
+        advanceTimeBy(1_000L)
+        runCurrent()
+
+        assertNull(vm.uiState.value.upNextItem)
+        assertEquals(0, vm.uiState.value.upNextCountdownSec)
+        assertEquals(1, vm.uiState.value.queueIndex)
+        assertEquals("file:///ep2.mkv", fakeController.lastLoadedUri)
+        assertEquals("Episode 2", vm.uiState.value.title)
+
+        // Simulating screen rotation after queue advance must NOT reload Episode 1
+        vm.loadInitialMediaIfNeeded(uri = "file:///ep1.mkv", title = "Episode 1")
+        runCurrent()
+        assertEquals("file:///ep2.mkv", fakeController.lastLoadedUri)
+        assertEquals(1, vm.uiState.value.queueIndex)
+
+        vm.prepareForExit()
+        runCurrent()
+    }
+
+    @Test
+    fun `cancelUpNext, seekTo, and onScrubStart cancel countdown and prevent auto-advance`() = runTest {
+        val queueManager = PlaybackQueueManager()
+        val items = listOf(
+            QueueMediaItem(uri = "file:///a.mkv", title = "A"),
+            QueueMediaItem(uri = "file:///b.mkv", title = "B"),
+        )
+        queueManager.setQueue(items, startIndex = 0, sourceTitle = "List", sourceKind = QueueSourceKind.PLAYLIST)
+        val vm = PlayerViewModel(
+            playbackController = fakeController,
+            configDir = "/tmp/jupiter-mpv-test",
+            playbackQueueManager = queueManager,
+            persistenceDispatcher = testDispatcher,
+        )
+
+        vm.loadMedia(uri = "file:///a.mkv", title = "A")
+        runCurrent()
+        fakeController.emitEvent(MpvEvent.FileLoaded)
+        fakeController.emitState { it.copy(durationMs = 60_000L, positionMs = 60_000L) }
+        runCurrent()
+
+        // 1. Cancel via cancelUpNext()
+        fakeController.emitEvent(MpvEvent.EndFile(MpvNative.END_FILE_REASON_EOF, 0))
+        runCurrent()
+        assertEquals(5, vm.uiState.value.upNextCountdownSec)
+        vm.cancelUpNext()
+        runCurrent()
+        assertNull(vm.uiState.value.upNextItem)
+        assertEquals(0, vm.uiState.value.upNextCountdownSec)
+        advanceTimeBy(10_000L)
+        runCurrent()
+        assertEquals("file:///a.mkv", fakeController.lastLoadedUri)
+
+        // 2. Cancel via seekTo()
+        fakeController.emitEvent(MpvEvent.EndFile(MpvNative.END_FILE_REASON_EOF, 0))
+        runCurrent()
+        assertEquals(5, vm.uiState.value.upNextCountdownSec)
+        vm.seekTo(20_000L)
+        runCurrent()
+        assertNull(vm.uiState.value.upNextItem)
+        advanceTimeBy(10_000L)
+        runCurrent()
+        assertEquals("file:///a.mkv", fakeController.lastLoadedUri)
+
+        // 3. Cancel via onScrubStart()
+        fakeController.emitEvent(MpvEvent.EndFile(MpvNative.END_FILE_REASON_EOF, 0))
+        runCurrent()
+        assertEquals(5, vm.uiState.value.upNextCountdownSec)
+        vm.onScrubStart()
+        runCurrent()
+        assertNull(vm.uiState.value.upNextItem)
+        advanceTimeBy(10_000L)
+        runCurrent()
+        assertEquals("file:///a.mkv", fakeController.lastLoadedUri)
+
+        vm.prepareForExit()
+        runCurrent()
+    }
+
+    @Test
+    fun `disabled autoPlayNext skips countdown and setAutoPlayNext updates preference`() = runTest {
+        val settingsRepo = InMemorySettingsRepository(UserPreferences(autoPlayNext = false))
+        val queueManager = PlaybackQueueManager()
+        queueManager.setQueue(
+            listOf(
+                QueueMediaItem(uri = "file:///1.mkv", title = "One"),
+                QueueMediaItem(uri = "file:///2.mkv", title = "Two"),
+            ),
+            startIndex = 0,
+            sourceTitle = "Queue",
+            sourceKind = QueueSourceKind.PLAYLIST,
+        )
+        val vm = PlayerViewModel(
+            playbackController = fakeController,
+            configDir = "/tmp/jupiter-mpv-test",
+            settingsRepository = settingsRepo,
+            playbackQueueManager = queueManager,
+            persistenceDispatcher = testDispatcher,
+        )
+
+        vm.loadMedia(uri = "file:///1.mkv", title = "One")
+        runCurrent()
+        fakeController.emitEvent(MpvEvent.FileLoaded)
+        fakeController.emitState { it.copy(durationMs = 30_000L, positionMs = 30_000L) }
+        runCurrent()
+
+        assertFalse(vm.uiState.value.autoPlayNext)
+        fakeController.emitEvent(MpvEvent.EndFile(MpvNative.END_FILE_REASON_EOF, 0))
+        runCurrent()
+        assertNull(vm.uiState.value.upNextItem)
+        advanceTimeBy(10_000L)
+        runCurrent()
+        assertEquals("file:///1.mkv", fakeController.lastLoadedUri)
+
+        vm.setAutoPlayNext(true)
+        runCurrent()
+        assertTrue(vm.uiState.value.autoPlayNext)
+        assertTrue(settingsRepo.current.autoPlayNext)
+
+        vm.prepareForExit()
+        runCurrent()
+    }
+
+    @Test
+    fun `manual queue controls playNextNow playPrevious and playQueueIndex update playback and state`() = runTest {
+        val queueManager = PlaybackQueueManager()
+        val items = listOf(
+            QueueMediaItem(uri = "file:///one.mkv", title = "One"),
+            QueueMediaItem(uri = "file:///two.mkv", title = "Two"),
+            QueueMediaItem(uri = "file:///three.mkv", title = "Three"),
+        )
+        queueManager.setQueue(items, startIndex = 0, sourceTitle = "Movies", sourceKind = QueueSourceKind.FOLDER)
+        val vm = PlayerViewModel(
+            playbackController = fakeController,
+            configDir = "/tmp/jupiter-mpv-test",
+            playbackQueueManager = queueManager,
+            persistenceDispatcher = testDispatcher,
+        )
+
+        vm.loadMedia(uri = "file:///one.mkv", title = "One")
+        runCurrent()
+        assertTrue(vm.uiState.value.hasQueue)
+        assertFalse(vm.uiState.value.hasPreviousInQueue)
+        assertTrue(vm.uiState.value.hasNextInQueue)
+        assertEquals("Movies", vm.uiState.value.queueSourceTitle)
+
+        vm.playNextNow()
+        runCurrent()
+        assertEquals(1, vm.uiState.value.queueIndex)
+        assertEquals("file:///two.mkv", fakeController.lastLoadedUri)
+        assertTrue(vm.uiState.value.hasPreviousInQueue)
+        assertTrue(vm.uiState.value.hasNextInQueue)
+
+        vm.playQueueIndex(2)
+        runCurrent()
+        assertEquals(2, vm.uiState.value.queueIndex)
+        assertEquals("file:///three.mkv", fakeController.lastLoadedUri)
+        assertFalse(vm.uiState.value.hasNextInQueue)
+
+        vm.playPrevious()
+        runCurrent()
+        assertEquals(1, vm.uiState.value.queueIndex)
+        assertEquals("file:///two.mkv", fakeController.lastLoadedUri)
+
+        vm.prepareForExit()
+        runCurrent()
+    }
+
+    @Test
+    fun `bookmarks add rename delete jump and switch dynamically across queue tracks`() = runTest {
+        val bookmarkRepo = InMemoryVideoBookmarkRepository()
+        val queueManager = PlaybackQueueManager()
+        val items = listOf(
+            QueueMediaItem(uri = "file:///movie1.mkv", title = "Movie 1"),
+            QueueMediaItem(uri = "file:///movie2.mkv", title = "Movie 2"),
+        )
+        queueManager.setQueue(items, startIndex = 0, sourceTitle = "Watchlist", sourceKind = QueueSourceKind.PLAYLIST)
+        val vm = PlayerViewModel(
+            playbackController = fakeController,
+            configDir = "/tmp/jupiter-mpv-test",
+            playbackQueueManager = queueManager,
+            videoBookmarkRepository = bookmarkRepo,
+            persistenceDispatcher = testDispatcher,
+        )
+
+        vm.loadMedia(uri = "file:///movie1.mkv", title = "Movie 1")
+        fakeController.emitEvent(MpvEvent.FileLoaded)
+        fakeController.emitState { it.copy(durationMs = 120_000L, positionMs = 42_000L) }
+        runCurrent()
+
+        // Blank label defaults to "Bookmark at 00:42" and triggers status message
+        vm.addBookmark()
+        runCurrent()
+        assertEquals(1, vm.uiState.value.bookmarks.size)
+        val firstBookmark = vm.uiState.value.bookmarks.first()
+        assertEquals("Bookmark at 00:42", firstBookmark.label)
+        assertEquals(42_000L, firstBookmark.positionMs)
+        assertEquals("Bookmark saved at 00:42", vm.uiState.value.statusMessage)
+
+        advanceTimeBy(2_500L)
+        runCurrent()
+        assertNull(vm.uiState.value.statusMessage)
+
+        // Custom trimmed label + rename + jump + delete
+        fakeController.emitState { it.copy(positionMs = 80_000L) }
+        runCurrent()
+        vm.addBookmark("  Climax  ")
+        runCurrent()
+        assertEquals(2, vm.uiState.value.bookmarks.size)
+        val secondBookmark = vm.uiState.value.bookmarks[1]
+        assertEquals("Climax", secondBookmark.label)
+
+        vm.renameBookmark(secondBookmark.id, "  Final act  ")
+        runCurrent()
+        assertEquals("Final act", vm.uiState.value.bookmarks[1].label)
+
+        vm.jumpToBookmark(firstBookmark)
+        runCurrent()
+        assertEquals(42_000L, fakeController.lastSeekToMs)
+
+        vm.deleteBookmark(firstBookmark.id)
+        runCurrent()
+        assertEquals(1, vm.uiState.value.bookmarks.size)
+
+        // Advancing to track 2 switches observed bookmarks dynamically
+        vm.playNextNow()
+        runCurrent()
+        assertTrue(vm.uiState.value.bookmarks.isEmpty())
+
+        fakeController.emitEvent(MpvEvent.FileLoaded)
+        fakeController.emitState { it.copy(durationMs = 90_000L, positionMs = 15_000L) }
+        runCurrent()
+        vm.addBookmark("Track 2 intro")
+        runCurrent()
+        assertEquals(1, vm.uiState.value.bookmarks.size)
+        assertEquals("Track 2 intro", vm.uiState.value.bookmarks.first().label)
+
+        vm.prepareForExit()
+        runCurrent()
+    }
+
+    @Test
+    fun `captureFrame guards re-entrancy and reports Saved and Failed status messages`() = runTest {
+        val gate = CompletableDeferred<FrameCaptureResult>()
+        var callCount = 0
+        var nextResult: FrameCaptureResult? = null
+        var lastSurfaceView: SurfaceView? = null
+        var lastVideoWidth = 0
+        var lastVideoHeight = 0
+        var lastCropLetterbox = false
+        val fakeCaptureManager = object : FrameCaptureManager {
+            override suspend fun captureCurrentFrame(
+                title: String,
+                surfaceView: SurfaceView?,
+                videoWidth: Int,
+                videoHeight: Int,
+                cropLetterbox: Boolean,
+            ): FrameCaptureResult {
+                callCount++
+                lastSurfaceView = surfaceView
+                lastVideoWidth = videoWidth
+                lastVideoHeight = videoHeight
+                lastCropLetterbox = cropLetterbox
+                return nextResult ?: gate.await()
+            }
+        }
+        val vm = PlayerViewModel(
+            playbackController = fakeController,
+            configDir = "/tmp/jupiter-mpv-test",
+            frameCaptureManager = fakeCaptureManager,
+            persistenceDispatcher = testDispatcher,
+        )
+
+        vm.loadMedia(uri = "file:///movie.mkv", title = "Movie")
+        fakeController.emitState { it.copy(videoWidth = 1920, videoHeight = 1080) }
+        runCurrent()
+
+        val testSurfaceView = allocateTestSurfaceView()
+        vm.captureFrame(testSurfaceView)
+        runCurrent()
+        assertTrue(vm.uiState.value.isCapturingFrame)
+        assertEquals(testSurfaceView, lastSurfaceView)
+        assertEquals(1920, lastVideoWidth)
+        assertEquals(1080, lastVideoHeight)
+        assertTrue(lastCropLetterbox)
+        // Re-entrant call while capturing must be ignored
+        vm.captureFrame(testSurfaceView)
+        runCurrent()
+        assertEquals(1, callCount)
+
+        gate.complete(FrameCaptureResult.Saved("Jupiter_Movie_1.png", "Pictures/Jupiter"))
+        runCurrent()
+        assertFalse(vm.uiState.value.isCapturingFrame)
+        assertEquals("Frame saved to Pictures/Jupiter", vm.uiState.value.statusMessage)
+
+        vm.dismissStatusMessage()
+        runCurrent()
+        assertNull(vm.uiState.value.statusMessage)
+
+        vm.setAspectMode(AspectMode.FILL)
+        nextResult = FrameCaptureResult.Failed("Failed to capture current video frame")
+        vm.captureFrame()
+        runCurrent()
+        assertFalse(vm.uiState.value.isCapturingFrame)
+        assertNull(lastSurfaceView)
+        assertFalse(lastCropLetterbox)
+        assertEquals("Failed to capture current video frame", vm.uiState.value.statusMessage)
+
+        vm.prepareForExit()
+        runCurrent()
+    }
+
+    private fun allocateTestSurface(): Surface = allocateTestInstance(Surface::class.java)
+
+    private fun allocateTestSurfaceView(): SurfaceView = allocateTestInstance(SurfaceView::class.java)
+
+    private fun <T> allocateTestInstance(clazz: Class<T>): T {
         val unsafeClass = Class.forName("sun.misc.Unsafe")
         val field = unsafeClass.getDeclaredField("theUnsafe")
         field.isAccessible = true
         val unsafe = field.get(null)
         val allocateMethod = unsafeClass.getMethod("allocateInstance", Class::class.java)
-        return allocateMethod.invoke(unsafe, Surface::class.java) as Surface
+        @Suppress("UNCHECKED_CAST")
+        return allocateMethod.invoke(unsafe, clazz) as T
     }
 
     private class FakeAudioFocusController : AudioFocusController {

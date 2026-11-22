@@ -85,6 +85,12 @@ class SettingsViewModel internal constructor(
         }
     }
 
+    fun setAutoPlayNext(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setAutoPlayNext(enabled)
+        }
+    }
+
     fun setBackgroundPlayEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.setBackgroundPlayEnabled(enabled)

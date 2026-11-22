@@ -1,5 +1,6 @@
 package com.jupiter.app.feature.player
 
+import com.jupiter.app.data.local.VideoBookmarkEntity
 import com.jupiter.engine.AudioTrack
 import com.jupiter.engine.Chapter
 import com.jupiter.engine.HwDecMode
@@ -110,7 +111,25 @@ data class PlayerUiState(
     val gestureBrightnessEnabled: Boolean = true,
     val gestureVolumeEnabled: Boolean = true,
     val gestureSeekEnabled: Boolean = true,
-)
+    val bookmarks: List<VideoBookmarkEntity> = emptyList(),
+    val queueItems: List<QueueMediaItem> = emptyList(),
+    val queueIndex: Int = -1,
+    val queueSourceTitle: String = "",
+    val autoPlayNext: Boolean = true,
+    val upNextItem: QueueMediaItem? = null,
+    val upNextCountdownSec: Int = 0,
+    val isCapturingFrame: Boolean = false,
+    val statusMessage: String? = null,
+) {
+    val hasQueue: Boolean
+        get() = queueItems.size > 1
+
+    val hasNextInQueue: Boolean
+        get() = queueIndex >= 0 && queueIndex + 1 < queueItems.size
+
+    val hasPreviousInQueue: Boolean
+        get() = queueIndex > 0 && queueIndex < queueItems.size
+}
 
 object TimeFormatters {
     fun formatDuration(ms: Long): String {

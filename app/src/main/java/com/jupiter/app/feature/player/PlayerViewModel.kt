@@ -1,20 +1,24 @@
 package com.jupiter.app.feature.player
 
 import android.view.Surface
+import android.view.SurfaceView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.app.core.di.MpvConfigDir
 import com.jupiter.app.core.di.PlaybackController
 import com.jupiter.app.data.local.MediaHistoryEntity
 import com.jupiter.app.data.local.UserPreferences
+import com.jupiter.app.data.local.VideoBookmarkEntity
 import com.jupiter.app.data.media.AndroidUriResolver
 import com.jupiter.app.data.media.LocalVideoItem
 import com.jupiter.app.data.media.MpvSource
 import com.jupiter.app.data.media.UriResolver
 import com.jupiter.app.data.repository.InMemorySettingsRepository
+import com.jupiter.app.data.repository.InMemoryVideoBookmarkRepository
 import com.jupiter.app.data.repository.MediaRepository
 import com.jupiter.app.data.repository.SettingsRepository
 import com.jupiter.app.data.repository.StreamHeaderConfig
+import com.jupiter.app.data.repository.VideoBookmarkRepository
 import com.jupiter.app.service.AudioFocusController
 import com.jupiter.app.service.PlaybackServiceLauncher
 import com.jupiter.engine.AudioTrack
@@ -52,6 +56,9 @@ class PlayerViewModel @Inject constructor(
     private val audioFocusController: AudioFocusController,
     private val playbackServiceLauncher: PlaybackServiceLauncher,
     private val settingsRepository: SettingsRepository,
+    private val playbackQueueManager: PlaybackQueueManager,
+    private val videoBookmarkRepository: VideoBookmarkRepository,
+    private val frameCaptureManager: FrameCaptureManager,
 ) : ViewModel() {
 
     private var persistenceDispatcher: CoroutineDispatcher = Dispatchers.IO
@@ -64,6 +71,9 @@ class PlayerViewModel @Inject constructor(
         audioFocusController: AudioFocusController = NoOpAudioFocusController,
         playbackServiceLauncher: PlaybackServiceLauncher = NoOpPlaybackServiceLauncher,
         settingsRepository: SettingsRepository = InMemorySettingsRepository(),
+        playbackQueueManager: PlaybackQueueManager = PlaybackQueueManager(),
+        videoBookmarkRepository: VideoBookmarkRepository = InMemoryVideoBookmarkRepository(),
+        frameCaptureManager: FrameCaptureManager = NoOpFrameCaptureManager,
         persistenceDispatcher: CoroutineDispatcher = Dispatchers.IO,
     ) : this(
         playbackController = playbackController,
@@ -73,6 +83,9 @@ class PlayerViewModel @Inject constructor(
         audioFocusController = audioFocusController,
         playbackServiceLauncher = playbackServiceLauncher,
         settingsRepository = settingsRepository,
+        playbackQueueManager = playbackQueueManager,
+        videoBookmarkRepository = videoBookmarkRepository,
+        frameCaptureManager = frameCaptureManager,
     ) {
         this.persistenceDispatcher = persistenceDispatcher
     }
@@ -90,6 +103,9 @@ class PlayerViewModel @Inject constructor(
     private var doubleTapJob: Job? = null
     private var zoomOverlayJob: Job? = null
     private var progressSaveJob: Job? = null
+    private var bookmarkObserveJob: Job? = null
+    private var upNextJob: Job? = null
+    private var statusMessageJob: Job? = null
 
     private var lastDoubleTapSide: DoubleTapSide? = null
     private var accumulatedDoubleTapSeconds: Int = 0
@@ -104,9 +120,11 @@ class PlayerViewModel @Inject constructor(
     private var currentDisplayName: String = ""
     private var currentIsNetworkStream: Boolean = false
     private var hasLoadedCurrentMedia: Boolean = false
+    private var hasEndedWithEof: Boolean = false
     private var hasExitedCurrentSession: Boolean = false
     private var pendingResumeMs: Long = 0L
 
+    private var startedRouteKey: RouteLoadKey? = null
     private var lastUri: String? = null
     private var lastTitle: String = ""
     private var lastIsNetworkStream: Boolean = false
@@ -123,10 +141,14 @@ class PlayerViewModel @Inject constructor(
             settingsRepository.preferences.collect { prefs ->
                 val resumeChanged = prefs.rememberResumePosition != latestPrefs.rememberResumePosition
                 latestPrefs = prefs
+                if (!prefs.autoPlayNext) {
+                    cancelUpNext()
+                }
                 _uiState.update {
                     it.copy(
                         backgroundPlayEnabled = prefs.backgroundPlayEnabled,
                         autoEnterPip = prefs.autoEnterPip,
+                        autoPlayNext = prefs.autoPlayNext,
                         doubleTapSeekSec = prefs.doubleTapSeekSec,
                         gestureBrightnessEnabled = prefs.gestureBrightnessEnabled,
                         gestureVolumeEnabled = prefs.gestureVolumeEnabled,
@@ -135,6 +157,18 @@ class PlayerViewModel @Inject constructor(
                 }
                 if (resumeChanged) {
                     syncProgressSaveLoop()
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            playbackQueueManager.state.collect { queue ->
+                _uiState.update {
+                    it.copy(
+                        queueItems = queue.items,
+                        queueIndex = queue.currentIndex,
+                        queueSourceTitle = queue.sourceTitle,
+                    )
                 }
             }
         }
@@ -258,6 +292,7 @@ class PlayerViewModel @Inject constructor(
                                 current.copy(errorMessage = msg)
                             }
                         } else if (event.isEof && hasLoadedCurrentMedia) {
+                            hasEndedWithEof = true
                             progressSaveJob?.cancel()
                             progressSaveJob = null
                             abandonAudioFocus()
@@ -265,6 +300,7 @@ class PlayerViewModel @Inject constructor(
                             if (duration > 0L) {
                                 launchImmediateProgressSave(overridePositionMs = duration)
                             }
+                            startUpNextCountdownIfEligible()
                         }
                     }
 
@@ -274,17 +310,42 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    fun loadInitialMediaIfNeeded(
+        uri: String,
+        title: String,
+        isNetworkStream: Boolean = false,
+        headersJson: String? = null,
+    ) {
+        val key = RouteLoadKey(
+            uri = uri,
+            title = title,
+            isNetworkStream = isNetworkStream,
+            headersJson = headersJson,
+        )
+        if (startedRouteKey == key) return
+        startedRouteKey = key
+        loadMedia(
+            uri = uri,
+            title = title,
+            isNetworkStream = isNetworkStream,
+            headersJson = headersJson,
+        )
+    }
+
     fun loadMedia(
         uri: String,
         title: String,
         isNetworkStream: Boolean = false,
         headersJson: String? = null,
     ) {
+        cancelUpNext()
         lastUri = uri
         lastTitle = title
         lastIsNetworkStream = isNetworkStream
         lastHeadersJson = headersJson
         hasLoadedCurrentMedia = false
+        val previousEndedWithEof = hasEndedWithEof
+        hasEndedWithEof = false
         hasExitedCurrentSession = false
         pendingResumeMs = 0L
 
@@ -294,7 +355,12 @@ class PlayerViewModel @Inject constructor(
             latestPrefs = prefs
 
             val previousUri = currentMediaUri
-            if (prefs.rememberResumePosition && previousUri != null && previousUri != uri && _uiState.value.durationMs > 0L) {
+            if (!previousEndedWithEof &&
+                prefs.rememberResumePosition &&
+                previousUri != null &&
+                previousUri != uri &&
+                _uiState.value.durationMs > 0L
+            ) {
                 saveCurrentProgress()
             }
 
@@ -305,6 +371,8 @@ class PlayerViewModel @Inject constructor(
             }
             if (resolved.isFailure) {
                 currentMediaUri = null
+                bookmarkObserveJob?.cancel()
+                bookmarkObserveJob = null
                 progressSaveJob?.cancel()
                 abandonAudioFocus()
                 _uiState.update {
@@ -312,6 +380,7 @@ class PlayerViewModel @Inject constructor(
                         title = title.ifBlank { extractTitleFromUri(uri) },
                         errorMessage = resolved.exceptionOrNull()?.message ?: "Unable to open media",
                         isPaused = true,
+                        bookmarks = emptyList(),
                     )
                 }
                 return@launch
@@ -325,6 +394,14 @@ class PlayerViewModel @Inject constructor(
             currentMediaUri = source.originalUri
             currentDisplayName = resolvedTitle
             currentIsNetworkStream = isNetworkStream
+
+            bookmarkObserveJob?.cancel()
+            _uiState.update { it.copy(bookmarks = emptyList()) }
+            bookmarkObserveJob = viewModelScope.launch {
+                videoBookmarkRepository.observeBookmarks(source.originalUri).collect { bookmarks ->
+                    _uiState.update { it.copy(bookmarks = bookmarks) }
+                }
+            }
 
             playbackController.clearAbLoop()
             playbackController.selectSecondarySubtitleTrack(null)
@@ -538,6 +615,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun seekBy(deltaSeconds: Int) {
+        cancelUpNext()
         pendingResumeMs = 0L
         val target = clampSeekTarget(
             targetMs = _positionMs.value + deltaSeconds * 1000L,
@@ -551,6 +629,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun seekTo(targetMs: Long) {
+        cancelUpNext()
         pendingResumeMs = 0L
         val clamped = clampSeekTarget(targetMs, _uiState.value.durationMs)
         _positionMs.value = clamped
@@ -561,6 +640,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun onScrubStart() {
+        cancelUpNext()
         hudHideJob?.cancel()
         _uiState.update {
             it.copy(
@@ -600,6 +680,7 @@ class PlayerViewModel @Inject constructor(
             flashUnlockHint()
             return
         }
+        cancelUpNext()
         pendingResumeMs = 0L
         val stepSeconds = _uiState.value.doubleTapSeekSec
         val sameSideActive = lastDoubleTapSide == side && doubleTapJob?.isActive == true
@@ -659,6 +740,7 @@ class PlayerViewModel @Inject constructor(
 
     fun onHorizontalDragEnd(commitMs: Long) {
         if (_uiState.value.isLocked || !_uiState.value.gestureSeekEnabled) return
+        cancelUpNext()
         pendingResumeMs = 0L
         val clamped = clampSeekTarget(commitMs, _uiState.value.durationMs)
         _positionMs.value = clamped
@@ -886,6 +968,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun jumpToChapter(chapter: Chapter) {
+        cancelUpNext()
         pendingResumeMs = 0L
         val targetMs = clampSeekTarget((chapter.timeSec * 1000.0).toLong(), _uiState.value.durationMs)
         _positionMs.value = targetMs
@@ -982,6 +1065,121 @@ class PlayerViewModel @Inject constructor(
         _uiState.update { it.copy(errorMessage = null) }
     }
 
+    fun dismissStatusMessage() {
+        statusMessageJob?.cancel()
+        statusMessageJob = null
+        _uiState.update { it.copy(statusMessage = null) }
+    }
+
+    fun playNextNow() {
+        cancelUpNext()
+        val nextItem = playbackQueueManager.moveNext() ?: return
+        loadQueueItem(nextItem)
+    }
+
+    fun playPrevious() {
+        cancelUpNext()
+        val prevItem = playbackQueueManager.movePrevious() ?: return
+        loadQueueItem(prevItem)
+    }
+
+    fun playQueueIndex(index: Int) {
+        cancelUpNext()
+        val item = playbackQueueManager.moveToIndex(index) ?: return
+        loadQueueItem(item)
+    }
+
+    fun cancelUpNext() {
+        upNextJob?.cancel()
+        upNextJob = null
+        if (_uiState.value.upNextItem != null || _uiState.value.upNextCountdownSec != 0) {
+            _uiState.update { it.copy(upNextItem = null, upNextCountdownSec = 0) }
+        }
+    }
+
+    fun setAutoPlayNext(enabled: Boolean) {
+        latestPrefs = latestPrefs.copy(autoPlayNext = enabled)
+        if (!enabled) {
+            cancelUpNext()
+        }
+        _uiState.update { it.copy(autoPlayNext = enabled) }
+        viewModelScope.launch {
+            settingsRepository.setAutoPlayNext(enabled)
+        }
+        rescheduleHudAutoHideIfVisible()
+    }
+
+    fun addBookmark(label: String = "") {
+        val uri = currentMediaUri ?: return
+        val posMs = _positionMs.value.coerceAtLeast(0L)
+        val formattedTime = TimeFormatters.formatDuration(posMs)
+        val resolvedLabel = label.trim().ifBlank { "Bookmark at $formattedTime" }
+        viewModelScope.launch {
+            withContext(persistenceDispatcher) {
+                videoBookmarkRepository.addBookmark(
+                    mediaUri = uri,
+                    positionMs = posMs,
+                    label = resolvedLabel,
+                )
+            }
+            showStatusMessage("Bookmark saved at $formattedTime")
+        }
+        rescheduleHudAutoHideIfVisible()
+    }
+
+    fun renameBookmark(id: Long, label: String) {
+        val trimmed = label.trim()
+        if (id <= 0L || trimmed.isEmpty()) return
+        viewModelScope.launch {
+            withContext(persistenceDispatcher) {
+                videoBookmarkRepository.renameBookmark(id, trimmed)
+            }
+        }
+        rescheduleHudAutoHideIfVisible()
+    }
+
+    fun deleteBookmark(id: Long) {
+        if (id <= 0L) return
+        viewModelScope.launch {
+            withContext(persistenceDispatcher) {
+                videoBookmarkRepository.deleteBookmark(id)
+            }
+        }
+        rescheduleHudAutoHideIfVisible()
+    }
+
+    fun jumpToBookmark(bookmark: VideoBookmarkEntity) {
+        seekTo(bookmark.positionMs)
+    }
+
+    fun captureFrame(surfaceView: SurfaceView? = null) {
+        if (_uiState.value.isCapturingFrame) return
+        val state = _uiState.value
+        val title = currentDisplayName.ifBlank { state.title }
+        _uiState.update { it.copy(isCapturingFrame = true) }
+        viewModelScope.launch {
+            try {
+                val result = withContext(persistenceDispatcher) {
+                    frameCaptureManager.captureCurrentFrame(
+                        title = title,
+                        surfaceView = surfaceView,
+                        videoWidth = state.videoWidth,
+                        videoHeight = state.videoHeight,
+                        cropLetterbox = state.aspectMode == AspectMode.FIT,
+                    )
+                }
+                val message = when (result) {
+                    is FrameCaptureResult.Saved -> "Frame saved to ${result.relativePath}"
+                    is FrameCaptureResult.Failed -> result.message
+                }
+                showStatusMessage(message)
+            } finally {
+                _uiState.update { it.copy(isCapturingFrame = false) }
+            }
+        }
+        rescheduleHudAutoHideIfVisible()
+    }
+
     fun onSheetVisibilityChanged(isOpen: Boolean) {
         if (isSheetOpen == isOpen) return
         isSheetOpen = isOpen
@@ -995,6 +1193,11 @@ class PlayerViewModel @Inject constructor(
     fun prepareForExit() {
         if (hasExitedCurrentSession) return
         hasExitedCurrentSession = true
+        cancelUpNext()
+        statusMessageJob?.cancel()
+        statusMessageJob = null
+        bookmarkObserveJob?.cancel()
+        bookmarkObserveJob = null
         loadMediaJob?.cancel()
         progressSaveJob?.cancel()
         progressSaveJob = null
@@ -1032,6 +1235,56 @@ class PlayerViewModel @Inject constructor(
         prepareForExit()
         super.onCleared()
     }
+
+    private fun loadQueueItem(item: QueueMediaItem) {
+        loadMedia(
+            uri = item.uri,
+            title = item.title,
+            isNetworkStream = item.isNetworkStream,
+            headersJson = item.headersJson,
+        )
+    }
+
+    private fun startUpNextCountdownIfEligible() {
+        if (!latestPrefs.autoPlayNext) return
+        val nextItem = playbackQueueManager.state.value.nextItem ?: return
+        upNextJob?.cancel()
+        upNextJob = viewModelScope.launch {
+            for (seconds in UP_NEXT_COUNTDOWN_SECONDS downTo 1) {
+                _uiState.update {
+                    it.copy(
+                        upNextItem = nextItem,
+                        upNextCountdownSec = seconds,
+                    )
+                }
+                delay(1_000L)
+            }
+            _uiState.update { it.copy(upNextItem = null, upNextCountdownSec = 0) }
+            playNextNow()
+        }
+    }
+
+    private fun showStatusMessage(message: String) {
+        statusMessageJob?.cancel()
+        _uiState.update { it.copy(statusMessage = message) }
+        statusMessageJob = viewModelScope.launch {
+            delay(STATUS_MESSAGE_TIMEOUT_MS)
+            _uiState.update { current ->
+                if (current.statusMessage == message) {
+                    current.copy(statusMessage = null)
+                } else {
+                    current
+                }
+            }
+        }
+    }
+
+    private data class RouteLoadKey(
+        val uri: String,
+        val title: String,
+        val isNetworkStream: Boolean,
+        val headersJson: String?,
+    )
 
     private fun requestAudioFocus(force: Boolean = false): Boolean {
         if (hasAudioFocus && !force) return true
@@ -1097,6 +1350,7 @@ class PlayerViewModel @Inject constructor(
                 subScale = defaultSubScale,
                 backgroundPlayEnabled = prefs.backgroundPlayEnabled,
                 autoEnterPip = prefs.autoEnterPip,
+                autoPlayNext = prefs.autoPlayNext,
                 doubleTapSeekSec = prefs.doubleTapSeekSec,
                 gestureBrightnessEnabled = prefs.gestureBrightnessEnabled,
                 gestureVolumeEnabled = prefs.gestureVolumeEnabled,
@@ -1278,6 +1532,8 @@ class PlayerViewModel @Inject constructor(
         private const val DOUBLE_TAP_TIMEOUT_MS = 800L
         private const val ZOOM_OVERLAY_TIMEOUT_MS = 900L
         private const val UNLOCK_HINT_TIMEOUT_MS = 2_000L
+        private const val STATUS_MESSAGE_TIMEOUT_MS = 2_500L
+        private const val UP_NEXT_COUNTDOWN_SECONDS = 5
         private const val DOUBLE_TAP_STEP_SECONDS = 10
         private const val PIP_SEEK_SECONDS = 10
         private const val BOOST_SPEED = 2.0f

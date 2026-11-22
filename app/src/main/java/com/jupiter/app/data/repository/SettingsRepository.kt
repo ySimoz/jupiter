@@ -35,6 +35,7 @@ interface SettingsRepository {
     suspend fun setDoubleTapSeekSec(seconds: Int)
     suspend fun setDefaultPlaybackSpeed(speed: Float)
     suspend fun setRememberResumePosition(enabled: Boolean)
+    suspend fun setAutoPlayNext(enabled: Boolean)
     suspend fun setBackgroundPlayEnabled(enabled: Boolean)
     suspend fun setAutoEnterPip(enabled: Boolean)
     suspend fun setSubtitleFontScale(scale: Float)
@@ -150,6 +151,7 @@ class DataStoreSettingsRepository @Inject constructor(
                     prefs[Keys.DEFAULT_PLAYBACK_SPEED] ?: SettingsValidation.DEFAULT_PLAYBACK_SPEED,
                 ),
                 rememberResumePosition = prefs[Keys.REMEMBER_RESUME_POSITION] ?: true,
+                autoPlayNext = prefs[Keys.AUTO_PLAY_NEXT] ?: true,
                 backgroundPlayEnabled = prefs[Keys.BACKGROUND_PLAY_ENABLED] ?: true,
                 autoEnterPip = prefs[Keys.AUTO_ENTER_PIP] ?: true,
                 subtitleFontScale = SettingsValidation.clampSubtitleScale(
@@ -195,6 +197,10 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setRememberResumePosition(enabled: Boolean) {
         dataStore.edit { it[Keys.REMEMBER_RESUME_POSITION] = enabled }
+    }
+
+    override suspend fun setAutoPlayNext(enabled: Boolean) {
+        dataStore.edit { it[Keys.AUTO_PLAY_NEXT] = enabled }
     }
 
     override suspend fun setBackgroundPlayEnabled(enabled: Boolean) {
@@ -305,6 +311,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val DOUBLE_TAP_SEEK_SEC = intPreferencesKey("double_tap_seek_sec")
         val DEFAULT_PLAYBACK_SPEED = floatPreferencesKey("default_playback_speed")
         val REMEMBER_RESUME_POSITION = booleanPreferencesKey("remember_resume_position")
+        val AUTO_PLAY_NEXT = booleanPreferencesKey("auto_play_next")
         val BACKGROUND_PLAY_ENABLED = booleanPreferencesKey("background_play_enabled")
         val AUTO_ENTER_PIP = booleanPreferencesKey("auto_enter_pip")
         val SUBTITLE_FONT_SCALE = floatPreferencesKey("subtitle_font_scale")
@@ -353,6 +360,10 @@ class InMemorySettingsRepository(
 
     override suspend fun setRememberResumePosition(enabled: Boolean) {
         _preferences.update { it.copy(rememberResumePosition = enabled) }
+    }
+
+    override suspend fun setAutoPlayNext(enabled: Boolean) {
+        _preferences.update { it.copy(autoPlayNext = enabled) }
     }
 
     override suspend fun setBackgroundPlayEnabled(enabled: Boolean) {

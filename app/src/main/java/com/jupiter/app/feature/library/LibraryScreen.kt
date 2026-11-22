@@ -10,6 +10,9 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,6 +39,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -44,6 +48,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
 import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Check
@@ -102,20 +107,33 @@ import com.jupiter.app.core.adaptive.LocalJupiterAdaptiveInfo
 import com.jupiter.app.core.adaptive.NavigationLayout
 import com.jupiter.app.core.designsystem.GlassAdaptiveSheet
 import com.jupiter.app.core.designsystem.GlassIconButton
+import com.jupiter.app.core.designsystem.GlassPill
 import com.jupiter.app.core.designsystem.GlassSurface
 import com.jupiter.app.core.designsystem.JupiterColors
+import com.jupiter.app.core.designsystem.LocalJupiterPalette
 import com.jupiter.app.core.designsystem.LocalJupiterShapes
 import com.jupiter.app.data.local.MediaHistoryEntity
 import com.jupiter.app.data.media.LibrarySortOption
 import com.jupiter.app.data.media.LocalFolderSummary
 import com.jupiter.app.data.media.LocalVideoItem
+import com.jupiter.app.feature.player.QueueMediaItem
 import com.jupiter.app.feature.player.TimeFormatters
+import com.jupiter.app.feature.playlists.AddToPlaylistSheet
+import kotlinx.coroutines.delay
 import java.util.Locale
+
+private sealed interface LibraryPlaylistTarget {
+    data class Video(val item: LocalVideoItem) : LibraryPlaylistTarget
+    data class Folder(val folderName: String) : LibraryPlaylistTarget
+}
 
 @Composable
 fun LibraryScreen(
     contentPadding: PaddingValues,
     onOpenMedia: (uri: String, title: String) -> Unit,
+    onOpenQueue: (items: List<QueueMediaItem>, startIndex: Int, sourceTitle: String) -> Unit = { items, startIndex, _ ->
+        items.getOrNull(startIndex)?.let { onOpenMedia(it.uri, it.title) }
+    },
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
@@ -220,7 +238,13 @@ fun LibraryScreen(
         onFolderClick = { viewModel.selectFolder(it) },
         onBackFromFolder = { viewModel.selectFolder(null) },
         onOpenMedia = onOpenMedia,
+        onOpenQueue = onOpenQueue,
         onRemoveHistory = viewModel::removeFromHistory,
+        onAddVideoToPlaylist = viewModel::addVideoToPlaylist,
+        onAddFolderToPlaylist = viewModel::addFolderToPlaylist,
+        onCreatePlaylistAndAddVideo = viewModel::createPlaylistAndAddVideo,
+        onCreatePlaylistAndAddFolder = viewModel::createPlaylistAndAddFolder,
+        onDismissFeedback = viewModel::dismissFeedback,
         modifier = modifier,
     )
 }
@@ -245,9 +269,27 @@ internal fun LibraryContent(
     onBackFromFolder: () -> Unit,
     onOpenMedia: (uri: String, title: String) -> Unit,
     onRemoveHistory: (String) -> Unit,
+    onOpenQueue: (items: List<QueueMediaItem>, startIndex: Int, sourceTitle: String) -> Unit = { items, startIndex, _ ->
+        items.getOrNull(startIndex)?.let { onOpenMedia(it.uri, it.title) }
+    },
+    onAddVideoToPlaylist: (playlistId: Long, video: LocalVideoItem) -> Unit = { _, _ -> },
+    onAddFolderToPlaylist: (playlistId: Long, folderName: String) -> Unit = { _, _ -> },
+    onCreatePlaylistAndAddVideo: (name: String, video: LocalVideoItem) -> Unit = { _, _ -> },
+    onCreatePlaylistAndAddFolder: (name: String, folderName: String) -> Unit = { _, _ -> },
+    onDismissFeedback: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val adaptiveInfo = LocalJupiterAdaptiveInfo.current
+    val palette = LocalJupiterPalette.current
+    var playlistTarget by remember { mutableStateOf<LibraryPlaylistTarget?>(null) }
+
+    LaunchedEffect(uiState.feedbackMessage) {
+        if (uiState.feedbackMessage != null) {
+            delay(2500)
+            onDismissFeedback()
+        }
+    }
+
     val fabBottomPadding = if (adaptiveInfo.navigationLayout == NavigationLayout.BOTTOM_BAR) {
         96.dp
     } else {
@@ -364,18 +406,39 @@ internal fun LibraryContent(
                         FolderCard(
                             folder = folder,
                             onClick = { onFolderClick(folder.name) },
+                            onAddToPlaylist = {
+                                playlistTarget = LibraryPlaylistTarget.Folder(folder.name)
+                            },
                             onHideFolder = { onToggleFolderHidden(folder.name, true) },
                             onRemoveFolder = { onRemoveFolder(folder) },
                         )
                     }
                 } else {
-                    items(
+                    itemsIndexed(
                         items = uiState.visibleVideos,
-                        key = { "video_${it.contentUri}" },
-                    ) { video ->
+                        key = { _, it -> "video_${it.contentUri}" },
+                    ) { index, video ->
                         VideoCard(
                             video = video,
-                            onClick = { onOpenMedia(video.contentUri, video.displayName) },
+                            onClick = {
+                                val queueItems = uiState.visibleVideos.map { item ->
+                                    QueueMediaItem(
+                                        uri = item.contentUri,
+                                        title = item.displayName,
+                                        isNetworkStream = false,
+                                        headersJson = null,
+                                        durationMs = item.durationMs,
+                                    )
+                                }
+                                onOpenQueue(
+                                    queueItems,
+                                    index,
+                                    uiState.selectedFolder ?: "Videos",
+                                )
+                            },
+                            onAddToPlaylist = {
+                                playlistTarget = LibraryPlaylistTarget.Video(video)
+                            },
                         )
                     }
                 }
@@ -390,6 +453,47 @@ internal fun LibraryContent(
                 .padding(end = fabEndPadding, bottom = fabBottomPadding),
         )
 
+        val bannerBottomPadding = if (adaptiveInfo.navigationLayout == NavigationLayout.BOTTOM_BAR) {
+            96.dp
+        } else {
+            20.dp
+        }
+        AnimatedVisibility(
+            visible = uiState.feedbackMessage != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = bannerBottomPadding),
+        ) {
+            val message = uiState.feedbackMessage.orEmpty()
+            GlassPill(
+                hazeState = null,
+                elevated = true,
+                modifier = Modifier.clickable(role = Role.Button, onClick = onDismissFeedback),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = palette.textPrimary,
+                    )
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Dismiss",
+                        tint = palette.textSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+
         ManageFoldersSheet(
             visible = uiState.manageFoldersOpen,
             useSideSheet = adaptiveInfo.useSideSheet,
@@ -400,6 +504,30 @@ internal fun LibraryContent(
             onAddFolderClick = onAddFolderClick,
             onRemoveCustomFolder = onRemoveCustomFolder,
             onToggleFolderHidden = onToggleFolderHidden,
+        )
+
+        val currentTarget = playlistTarget
+        AddToPlaylistSheet(
+            visible = currentTarget != null,
+            useSideSheet = adaptiveInfo.useSideSheet,
+            playlists = uiState.playlists,
+            onDismiss = { playlistTarget = null },
+            onSelectPlaylist = { playlistId ->
+                when (currentTarget) {
+                    is LibraryPlaylistTarget.Video -> onAddVideoToPlaylist(playlistId, currentTarget.item)
+                    is LibraryPlaylistTarget.Folder -> onAddFolderToPlaylist(playlistId, currentTarget.folderName)
+                    null -> Unit
+                }
+                playlistTarget = null
+            },
+            onCreatePlaylistAndAdd = { name ->
+                when (currentTarget) {
+                    is LibraryPlaylistTarget.Video -> onCreatePlaylistAndAddVideo(name, currentTarget.item)
+                    is LibraryPlaylistTarget.Folder -> onCreatePlaylistAndAddFolder(name, currentTarget.folderName)
+                    null -> Unit
+                }
+                playlistTarget = null
+            },
         )
     }
 }
@@ -1011,6 +1139,7 @@ private fun FolderBackHeader(
 private fun FolderCard(
     folder: LocalFolderSummary,
     onClick: () -> Unit,
+    onAddToPlaylist: () -> Unit,
     onHideFolder: () -> Unit,
     onRemoveFolder: () -> Unit,
 ) {
@@ -1104,6 +1233,27 @@ private fun FolderCard(
                         shape = shapes.menu,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Add to playlist",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Outlined.PlaylistAdd,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onAddToPlaylist()
+                            },
+                        )
                         DropdownMenuItem(
                             text = {
                                 Text(
@@ -1461,11 +1611,13 @@ private fun CollapsibleFolderListSection(
 private fun VideoCard(
     video: LocalVideoItem,
     onClick: () -> Unit,
+    onAddToPlaylist: () -> Unit,
 ) {
     val context = LocalContext.current
     val shapes = LocalJupiterShapes.current
     val shape = shapes.surface
     val badgeShape = RoundedCornerShape((4f + 4f * (shapes.percent / 100f)).dp)
+    var menuExpanded by remember { mutableStateOf(false) }
 
     GlassSurface(
         modifier = Modifier
@@ -1519,31 +1671,84 @@ private fun VideoCard(
                     }
                 }
             }
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                    .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = video.displayName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val meta = formatVideoMetadata(video)
-                if (meta.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     Text(
-                        text = meta,
-                        style = MaterialTheme.typography.labelSmall.merge(
-                            TextStyle(fontFeatureSettings = "tnum"),
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        text = video.displayName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    val meta = formatVideoMetadata(video)
+                    if (meta.isNotEmpty()) {
+                        Text(
+                            text = meta,
+                            style = MaterialTheme.typography.labelSmall.merge(
+                                TextStyle(fontFeatureSettings = "tnum"),
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+
+                Box {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .semantics { contentDescription = "Video options" }
+                            .clickable(role = Role.Button) { menuExpanded = true },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.MoreVert,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = shapes.menu,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Add to playlist",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Outlined.PlaylistAdd,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onAddToPlaylist()
+                            },
+                        )
+                    }
                 }
             }
         }

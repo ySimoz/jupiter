@@ -1,6 +1,9 @@
 package com.jupiter.app.feature.streams
 
 import android.content.ClipboardManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,6 +32,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.Close
@@ -45,8 +49,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,12 +75,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.jupiter.app.core.adaptive.LocalJupiterAdaptiveInfo
 import com.jupiter.app.core.adaptive.NavigationLayout
 import com.jupiter.app.core.designsystem.GlassDialog
+import com.jupiter.app.core.designsystem.GlassPill
 import com.jupiter.app.core.designsystem.GlassSurface
 import com.jupiter.app.core.designsystem.LocalJupiterPalette
 import com.jupiter.app.core.designsystem.LocalJupiterShapes
 import com.jupiter.app.data.local.NetworkStreamEntity
 import com.jupiter.app.data.repository.StreamHeaderConfig
 import com.jupiter.app.data.repository.StreamUrlValidator
+import com.jupiter.app.feature.playlists.AddToPlaylistSheet
+import kotlinx.coroutines.delay
 
 @Composable
 private fun adaptiveErrorColor(): Color =
@@ -123,6 +134,9 @@ fun StreamsScreen(
         onUpdateHeaderRow = viewModel::updateHeaderRow,
         onRemoveHeaderRow = viewModel::removeHeaderRow,
         onSaveEditor = viewModel::saveEditor,
+        onAddStreamToPlaylist = viewModel::addStreamToPlaylist,
+        onCreatePlaylistAndAddStream = viewModel::createPlaylistAndAddStream,
+        onDismissFeedback = viewModel::dismissFeedback,
         modifier = modifier,
     )
 }
@@ -152,10 +166,21 @@ internal fun StreamsContent(
     onUpdateHeaderRow: (id: Int, key: String, value: String) -> Unit,
     onRemoveHeaderRow: (Int) -> Unit,
     onSaveEditor: () -> Unit,
+    onAddStreamToPlaylist: (playlistId: Long, stream: NetworkStreamEntity) -> Unit = { _, _ -> },
+    onCreatePlaylistAndAddStream: (name: String, stream: NetworkStreamEntity) -> Unit = { _, _ -> },
+    onDismissFeedback: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val adaptiveInfo = LocalJupiterAdaptiveInfo.current
     val palette = LocalJupiterPalette.current
+    var playlistTargetStream by remember { mutableStateOf<NetworkStreamEntity?>(null) }
+
+    LaunchedEffect(uiState.feedbackMessage) {
+        if (uiState.feedbackMessage != null) {
+            delay(2500)
+            onDismissFeedback()
+        }
+    }
     val columns = if (adaptiveInfo.widthSizeClass == WindowWidthSizeClass.Compact) {
         GridCells.Fixed(1)
     } else {
@@ -218,6 +243,7 @@ internal fun StreamsContent(
                         StreamBookmarkCard(
                             stream = stream,
                             onPlay = { onBookmarkClick(stream) },
+                            onAddToPlaylist = { playlistTargetStream = stream },
                             onTogglePin = { onTogglePin(stream) },
                             onEdit = { onEditBookmark(stream) },
                             onDelete = { onDeleteBookmark(stream) },
@@ -236,6 +262,7 @@ internal fun StreamsContent(
                         StreamBookmarkCard(
                             stream = stream,
                             onPlay = { onBookmarkClick(stream) },
+                            onAddToPlaylist = { playlistTargetStream = stream },
                             onTogglePin = { onTogglePin(stream) },
                             onEdit = { onEditBookmark(stream) },
                             onDelete = { onDeleteBookmark(stream) },
@@ -252,7 +279,68 @@ internal fun StreamsContent(
                 .navigationBarsPadding()
                 .padding(end = fabEndPadding, bottom = fabBottomPadding),
         )
+
+        val bannerBottomPadding = if (adaptiveInfo.navigationLayout == NavigationLayout.BOTTOM_BAR) {
+            96.dp
+        } else {
+            20.dp
+        }
+        AnimatedVisibility(
+            visible = uiState.feedbackMessage != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = bannerBottomPadding),
+        ) {
+            val message = uiState.feedbackMessage.orEmpty()
+            GlassPill(
+                hazeState = null,
+                elevated = true,
+                modifier = Modifier.clickable(role = Role.Button, onClick = onDismissFeedback),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = palette.textPrimary,
+                    )
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Dismiss",
+                        tint = palette.textSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
     }
+
+    val targetStream = playlistTargetStream
+    AddToPlaylistSheet(
+        visible = targetStream != null,
+        useSideSheet = adaptiveInfo.useSideSheet,
+        playlists = uiState.playlists,
+        onDismiss = { playlistTargetStream = null },
+        onSelectPlaylist = { playlistId ->
+            if (targetStream != null) {
+                onAddStreamToPlaylist(playlistId, targetStream)
+            }
+            playlistTargetStream = null
+        },
+        onCreatePlaylistAndAdd = { name ->
+            if (targetStream != null) {
+                onCreatePlaylistAndAddStream(name, targetStream)
+            }
+            playlistTargetStream = null
+        },
+    )
 
     val editor = uiState.editor
     if (editor != null) {
@@ -468,6 +556,7 @@ private fun SectionHeading(title: String) {
 private fun StreamBookmarkCard(
     stream: NetworkStreamEntity,
     onPlay: () -> Unit,
+    onAddToPlaylist: () -> Unit,
     onTogglePin: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -563,6 +652,12 @@ private fun StreamBookmarkCard(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    BookmarkActionIcon(
+                        icon = Icons.AutoMirrored.Outlined.PlaylistAdd,
+                        contentDescription = "Add to playlist",
+                        tint = palette.textSecondary,
+                        onClick = onAddToPlaylist,
+                    )
                     BookmarkActionIcon(
                         icon = Icons.Outlined.PushPin,
                         contentDescription = if (stream.isPinned) "Unpin stream" else "Pin stream",

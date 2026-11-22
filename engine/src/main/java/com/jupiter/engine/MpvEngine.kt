@@ -322,6 +322,9 @@ class MpvEngine {
         rc
     }
 
+    fun screenshotToFile(filePath: String, mode: String = "subtitles"): Int =
+        command("screenshot-to-file", filePath, mode)
+
     fun setOption(name: String, value: String): Int = withInitializedHandle(-1) { handle ->
         MpvNative.nativeSetOptionString(handle, name, value)
     }

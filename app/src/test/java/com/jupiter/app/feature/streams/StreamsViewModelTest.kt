@@ -1,6 +1,7 @@
 package com.jupiter.app.feature.streams
 
 import com.jupiter.app.data.local.NetworkStreamEntity
+import com.jupiter.app.data.repository.InMemoryPlaylistRepository
 import com.jupiter.app.data.repository.StreamHeaderConfig
 import com.jupiter.app.data.repository.StreamRepository
 import com.jupiter.app.data.repository.StreamUrlValidator
@@ -28,13 +29,18 @@ class StreamsViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var fakeRepository: FakeStreamRepository
+    private lateinit var playlistRepository: InMemoryPlaylistRepository
     private lateinit var viewModel: StreamsViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         fakeRepository = FakeStreamRepository()
-        viewModel = StreamsViewModel(streamRepository = fakeRepository)
+        playlistRepository = InMemoryPlaylistRepository()
+        viewModel = StreamsViewModel(
+            streamRepository = fakeRepository,
+            playlistRepository = playlistRepository,
+        )
     }
 
     @After
@@ -191,6 +197,47 @@ class StreamsViewModelTest {
         val updated = viewModel.uiState.value.savedStreams.single { it.id == streamId }
         assertNotNull(updated.lastPlayedEpochMs)
         assertFalse(updated.isPinned)
+    }
+
+    @Test
+    fun `addStreamToPlaylist and createPlaylistAndAddStream preserve headersJson and emit feedback`() = runTest {
+        val streamId = fakeRepository.saveStream(
+            title = "Live Sports",
+            url = "https://cdn.example.com/sports/master.m3u8",
+            userAgent = "JupiterTV/2.0",
+            referer = "https://sports.example.com",
+            customHeaders = mapOf("X-Key" to "secret"),
+            isPinned = true,
+        ).getOrThrow()
+        val playlistId = playlistRepository.createPlaylist("Live TV")
+        runCurrent()
+
+        assertEquals(listOf("Live TV"), viewModel.uiState.value.playlists.map { it.name })
+        val stream = viewModel.uiState.value.pinnedStreams.single { it.id == streamId }
+
+        viewModel.addStreamToPlaylist(playlistId, stream)
+        runCurrent()
+
+        assertEquals("Added to Live TV", viewModel.uiState.value.feedbackMessage)
+        val addedItem = playlistRepository.getPlaylistItems(playlistId).single()
+        assertEquals("https://cdn.example.com/sports/master.m3u8", addedItem.mediaUri)
+        assertEquals("Live Sports", addedItem.title)
+        assertTrue(addedItem.isNetworkStream)
+        val decoded = StreamHeaderConfig.fromJson(addedItem.headersJson)
+        assertEquals("JupiterTV/2.0", decoded.userAgent)
+        assertEquals("https://sports.example.com", decoded.referer)
+        assertEquals(mapOf("X-Key" to "secret"), decoded.headers)
+
+        viewModel.dismissFeedback()
+        assertNull(viewModel.uiState.value.feedbackMessage)
+
+        viewModel.createPlaylistAndAddStream("  News Channels  ", stream)
+        runCurrent()
+
+        assertEquals("Added to News Channels", viewModel.uiState.value.feedbackMessage)
+        val createdSummary = viewModel.uiState.value.playlists.first { it.name == "News Channels" }
+        assertEquals(1, createdSummary.streamCount)
+        assertEquals(0, createdSummary.videoCount)
     }
 
     private class FakeStreamRepository : StreamRepository {

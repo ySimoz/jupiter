@@ -58,6 +58,7 @@ class SettingsRepositoryTest {
         val repo = InMemorySettingsRepository(configDir = configDir)
 
         assertEquals(UserPreferences(), repo.preferences.first())
+        assertTrue(repo.current.autoPlayNext)
         assertEquals(0xFF090C12.toInt(), repo.current.backgroundArgb)
         assertEquals(0xFFE6ECF5.toInt(), repo.current.accentArgb)
         assertEquals(GlassStyle.FROSTED, repo.current.glassStyle)
@@ -185,6 +186,7 @@ class SettingsRepositoryTest {
 
         repo.setHwDecMode(HwDecMode.SOFTWARE)
         repo.setRememberResumePosition(false)
+        repo.setAutoPlayNext(false)
         repo.setBackgroundPlayEnabled(false)
         repo.setAutoEnterPip(false)
         repo.setBackgroundArgb(0xFF102030.toInt())
@@ -198,6 +200,7 @@ class SettingsRepositoryTest {
         val updated = repo.preferences.first()
         assertEquals(HwDecMode.SOFTWARE, updated.hwDecMode)
         assertFalse(updated.rememberResumePosition)
+        assertFalse(updated.autoPlayNext)
         assertFalse(updated.backgroundPlayEnabled)
         assertFalse(updated.autoEnterPip)
         assertEquals(0xFF102030.toInt(), updated.backgroundArgb)
@@ -215,5 +218,8 @@ class SettingsRepositoryTest {
 
         assertTrue(repo.clearAppCache())
         assertTrue(cacheCleared)
+
+        repo.setAutoPlayNext(true)
+        assertTrue(repo.preferences.first().autoPlayNext)
     }
 }

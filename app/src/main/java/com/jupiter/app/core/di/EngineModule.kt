@@ -2,6 +2,8 @@ package com.jupiter.app.core.di
 
 import android.content.Context
 import android.view.Surface
+import com.jupiter.app.feature.player.AndroidFrameCaptureManager
+import com.jupiter.app.feature.player.FrameCaptureManager
 import com.jupiter.app.service.AndroidAudioFocusController
 import com.jupiter.app.service.AndroidPlaybackServiceLauncher
 import com.jupiter.app.service.AudioFocusController
@@ -65,6 +67,7 @@ interface PlaybackController {
     fun setAbLoopB(seconds: Double?): Int
     fun clearAbLoop(): Int
     fun setEqualizerProperty(name: String, value: Int): Int
+    fun screenshotToFile(filePath: String, mode: String = "subtitles"): Int = -1
 }
 
 internal class MpvPlaybackController(
@@ -150,6 +153,9 @@ internal class MpvPlaybackController(
 
     override fun setEqualizerProperty(name: String, value: Int): Int =
         engine.setEqualizerProperty(name, value)
+
+    override fun screenshotToFile(filePath: String, mode: String): Int =
+        engine.screenshotToFile(filePath, mode)
 }
 
 @Module
@@ -180,6 +186,13 @@ object EngineModule {
     fun provideAudioFocusController(
         @ApplicationContext context: Context,
     ): AudioFocusController = AndroidAudioFocusController(context)
+
+    @Provides
+    @Singleton
+    fun provideFrameCaptureManager(
+        @ApplicationContext context: Context,
+        playbackController: PlaybackController,
+    ): FrameCaptureManager = AndroidFrameCaptureManager(context, playbackController)
 }
 
 internal object AndroidCaBundle {
