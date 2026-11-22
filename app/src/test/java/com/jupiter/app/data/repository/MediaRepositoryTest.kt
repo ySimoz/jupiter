@@ -229,6 +229,62 @@ class MediaRepositoryTest {
         assertTrue(repo.observeCustomFolderUris().first().isEmpty())
     }
 
+    @Test
+    fun `scanLocalVideos deduplicates overlapping MediaStore and SAF items by bucket displayName and size`() = runTest {
+        val treeUri = "content://com.android.externalstorage.documents/tree/primary%3AMovies"
+        val mediaStoreMovie = LocalVideoItem(
+            id = 10L,
+            contentUri = "content://media/external/video/media/10",
+            displayName = "Feature.mkv",
+            bucketName = "Movies",
+            durationMs = 540_000L,
+            sizeBytes = 1_500_000_000L,
+            dateModifiedSec = 1_700_000_100L,
+            width = 1920,
+            height = 1080,
+        )
+        val overlappingSafMovie = LocalVideoItem(
+            id = -10L,
+            contentUri = "$treeUri/document/primary%3AMovies%2FFeature.mkv",
+            displayName = "feature.mkv",
+            bucketName = "movies",
+            durationMs = 0L,
+            sizeBytes = 1_500_000_000L,
+            dateModifiedSec = 1_700_000_100L,
+            width = 0,
+            height = 0,
+            sourceTreeUri = treeUri,
+        )
+        val safOnlyMovie = LocalVideoItem(
+            id = -11L,
+            contentUri = "$treeUri/document/primary%3AMovies%2FExtras.mkv",
+            displayName = "Extras.mkv",
+            bucketName = "Movies",
+            durationMs = 0L,
+            sizeBytes = 250_000_000L,
+            dateModifiedSec = 1_700_000_200L,
+            width = 0,
+            height = 0,
+            sourceTreeUri = treeUri,
+        )
+        val folderPrefs = InMemoryLibraryFolderPreferences()
+        val safScanner = FakeSafFolderScanner(
+            videosByTree = mapOf(treeUri to listOf(overlappingSafMovie, safOnlyMovie)),
+            namesByTree = mapOf(treeUri to "Movies"),
+        )
+        val repo = DefaultMediaRepository(
+            scanner = FakeLocalMediaScanner(listOf(mediaStoreMovie)),
+            mediaHistoryDao = FakeMediaHistoryDao(),
+            folderPreferences = folderPrefs,
+            safScanner = safScanner,
+        )
+
+        repo.addCustomFolder(treeUri)
+
+        val scanned = repo.scanLocalVideos()
+        assertEquals(listOf(mediaStoreMovie, safOnlyMovie), scanned)
+    }
+
     private class FakeLocalMediaScanner(
         private val items: List<LocalVideoItem>,
     ) : LocalMediaScanner {

@@ -75,7 +75,26 @@ class DefaultMediaRepository(
         val safVideos = scanCustomFolderVideos()
         if (safVideos.isEmpty()) return mediaStoreVideos
         if (mediaStoreVideos.isEmpty()) return safVideos
-        return (mediaStoreVideos + safVideos).distinctBy { it.contentUri }
+        val mediaStoreKeys = mediaStoreVideos
+            .asSequence()
+            .filter { it.sizeBytes > 0L }
+            .map { video ->
+                Triple(
+                    video.bucketName.lowercase(),
+                    video.displayName.lowercase(),
+                    video.sizeBytes,
+                )
+            }
+            .toSet()
+        val dedupedSafVideos = safVideos.filter { saf ->
+            saf.sizeBytes <= 0L ||
+                Triple(
+                    saf.bucketName.lowercase(),
+                    saf.displayName.lowercase(),
+                    saf.sizeBytes,
+                ) !in mediaStoreKeys
+        }
+        return (mediaStoreVideos + dedupedSafVideos).distinctBy { it.contentUri }
     }
 
     override suspend fun scanCustomFolderVideos(): List<LocalVideoItem> {

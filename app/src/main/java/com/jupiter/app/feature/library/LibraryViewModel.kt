@@ -39,7 +39,6 @@ data class LibraryUiState(
     val hiddenFolders: Set<String> = emptySet(),
     val hiddenFolderNames: List<String> = emptyList(),
     val removedFolders: Set<String> = emptySet(),
-    val removedFolderNames: List<String> = emptyList(),
     val customFolders: List<CustomFolderEntry> = emptyList(),
     val manageFoldersOpen: Boolean = false,
     val visibleVideos: List<LocalVideoItem> = emptyList(),
@@ -257,6 +256,15 @@ class LibraryViewModel @Inject constructor(
     fun addCustomFolder(treeUri: String) {
         if (treeUri.isBlank()) return
         viewModelScope.launch {
+            val displayName = mediaRepository.resolveCustomFolderName(treeUri)
+            if (displayName.isNotBlank()) {
+                _uiState.value.removedFolders
+                    .filter { it.equals(displayName, ignoreCase = true) }
+                    .forEach { match -> mediaRepository.setFolderRemoved(match, false) }
+                _uiState.value.hiddenFolders
+                    .filter { it.equals(displayName, ignoreCase = true) }
+                    .forEach { match -> mediaRepository.setFolderHidden(match, false) }
+            }
             mediaRepository.addCustomFolder(treeUri)
         }
     }
@@ -271,21 +279,29 @@ class LibraryViewModel @Inject constructor(
         if (_uiState.value.selectedFolder == folder.name) {
             _uiState.update { it.copy(selectedFolder = null) }
         }
+        val treeUrisToRemove = buildSet {
+            if (folder.treeUri != null) {
+                add(folder.treeUri)
+            }
+            _uiState.value.customFolders
+                .filter { it.displayName.equals(folder.name, ignoreCase = true) }
+                .forEach { add(it.treeUri) }
+        }
+        val hasMediaStoreVideos = !folder.isCustom || cachedVideos.any { video ->
+            video.sourceTreeUri == null &&
+                video.bucketName.ifBlank { "Videos" }.equals(folder.name, ignoreCase = true)
+        }
         viewModelScope.launch {
-            val treeUri = folder.treeUri
-            if (folder.isCustom && treeUri != null) {
+            treeUrisToRemove.forEach { treeUri ->
                 removeCustomFolderInternal(treeUri = treeUri, folderName = folder.name)
-                refresh()
-            } else {
+            }
+            if (hasMediaStoreVideos) {
                 mediaRepository.setFolderRemoved(folder.name, true)
                 mediaRepository.setFolderHidden(folder.name, false)
             }
-        }
-    }
-
-    fun restoreRemovedFolder(folderName: String) {
-        viewModelScope.launch {
-            mediaRepository.setFolderRemoved(folderName, false)
+            if (treeUrisToRemove.isNotEmpty()) {
+                refresh()
+            }
         }
     }
 
@@ -301,12 +317,14 @@ class LibraryViewModel @Inject constructor(
             _uiState.update { it.copy(selectedFolder = null) }
         }
         mediaRepository.removeCustomFolder(treeUri)
-        if (displayName.isNotBlank() && displayName in _uiState.value.hiddenFolders) {
-            mediaRepository.setFolderHidden(displayName, false)
-        }
-        if (!folderName.isNullOrBlank() && folderName != displayName && folderName in _uiState.value.hiddenFolders) {
-            mediaRepository.setFolderHidden(folderName, false)
-        }
+        _uiState.value.hiddenFolders
+            .filter { match ->
+                (displayName.isNotBlank() && match.equals(displayName, ignoreCase = true)) ||
+                    (!folderName.isNullOrBlank() && match.equals(folderName, ignoreCase = true))
+            }
+            .forEach { match ->
+                mediaRepository.setFolderHidden(match, false)
+            }
     }
 
     fun openManageFolders() {
@@ -333,7 +351,6 @@ class LibraryViewModel @Inject constructor(
                 null
             }
             val hiddenFolderNames = (state.hiddenFolders - state.removedFolders).sortedCaseInsensitive()
-            val removedFolderNames = state.removedFolders.sortedCaseInsensitive()
             val allDetectedFolders = LibraryFilterEngine.buildFolders(
                 videos = cachedVideos,
                 searchQuery = "",
@@ -355,7 +372,6 @@ class LibraryViewModel @Inject constructor(
                 isLoading = isLoading ?: state.isLoading,
                 selectedFolder = nextSelected,
                 hiddenFolderNames = hiddenFolderNames,
-                removedFolderNames = removedFolderNames,
                 allDetectedFolders = allDetectedFolders,
                 folders = folders,
                 visibleVideos = visibleVideos,

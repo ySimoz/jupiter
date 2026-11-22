@@ -2,11 +2,14 @@ package com.jupiter.app.core.shell
 
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +32,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Settings
@@ -42,11 +46,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -69,8 +86,11 @@ import com.jupiter.app.core.adaptive.LocalJupiterAdaptiveInfo
 import com.jupiter.app.core.adaptive.NavigationLayout
 import com.jupiter.app.core.adaptive.computeAdaptiveInfo
 import com.jupiter.app.core.designsystem.AmbientGlassBackground
+import com.jupiter.app.core.designsystem.GlassStyle
 import com.jupiter.app.core.designsystem.GlassSurface
+import com.jupiter.app.core.designsystem.JupiterPalette
 import com.jupiter.app.core.designsystem.JupiterTheme
+import com.jupiter.app.core.designsystem.LocalGlassStyle
 import com.jupiter.app.core.designsystem.LocalJupiterPalette
 import com.jupiter.app.core.designsystem.LocalJupiterShapes
 import com.jupiter.app.core.navigation.LibraryRoute
@@ -84,6 +104,8 @@ import com.jupiter.app.feature.streams.StreamsScreen
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 data class ExternalMediaLaunch(
     val uri: String,
@@ -352,6 +374,215 @@ private fun rememberShellContentPadding(navigationLayout: NavigationLayout): Pad
     }
 }
 
+private class NavBubbleState(
+    val itemBounds: SnapshotStateMap<TopLevelDestination, Rect>,
+    val left: Animatable<Float, AnimationVector1D>,
+    val top: Animatable<Float, AnimationVector1D>,
+    val width: Animatable<Float, AnimationVector1D>,
+    val height: Animatable<Float, AnimationVector1D>,
+) {
+    var lastAnimatedDestination: TopLevelDestination? = null
+
+    val isAnimating: Boolean
+        get() = left.isRunning || top.isRunning || width.isRunning || height.isRunning
+}
+
+@Composable
+private fun rememberNavBubbleState(
+    selectedDestination: TopLevelDestination?,
+    layoutKey: Any = Unit,
+): NavBubbleState {
+    val state = remember(layoutKey) {
+        NavBubbleState(
+            itemBounds = mutableStateMapOf(),
+            left = Animatable(0f),
+            top = Animatable(0f),
+            width = Animatable(0f),
+            height = Animatable(0f),
+        )
+    }
+
+    val targetBounds = selectedDestination?.let { state.itemBounds[it] }
+
+    LaunchedEffect(state, selectedDestination, targetBounds) {
+        if (selectedDestination == null || targetBounds == null) return@LaunchedEffect
+        val isInitialOrSameDestination =
+            state.lastAnimatedDestination == null || state.lastAnimatedDestination == selectedDestination
+        state.lastAnimatedDestination = selectedDestination
+
+        if (isInitialOrSameDestination) {
+            state.left.snapTo(targetBounds.left)
+            state.top.snapTo(targetBounds.top)
+            state.width.snapTo(targetBounds.width)
+            state.height.snapTo(targetBounds.height)
+        } else {
+            val bubbleSpring = spring<Float>(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = 380f,
+            )
+            coroutineScope {
+                launch { state.left.animateTo(targetBounds.left, bubbleSpring) }
+                launch { state.top.animateTo(targetBounds.top, bubbleSpring) }
+                launch { state.width.animateTo(targetBounds.width, bubbleSpring) }
+                launch { state.height.animateTo(targetBounds.height, bubbleSpring) }
+            }
+        }
+    }
+
+    return state
+}
+
+private fun DrawScope.drawNavGlassBubble(
+    left: Float,
+    top: Float,
+    width: Float,
+    height: Float,
+    cornerShape: CornerBasedShape,
+    glassStyle: GlassStyle,
+    palette: JupiterPalette,
+    accentColor: Color,
+) {
+    if (width <= 0f || height <= 0f) return
+
+    val bubbleSize = Size(width, height)
+    val topLeft = Offset(left, top)
+    val radius = cornerShape.topStart.toPx(bubbleSize, this)
+        .coerceIn(0f, minOf(width, height) / 2f)
+    val cornerRadius = CornerRadius(radius, radius)
+
+    val strokeWidth = 1.dp.toPx()
+    val halfStroke = strokeWidth / 2f
+    val borderTopLeft = Offset(left + halfStroke, top + halfStroke)
+    val borderSize = Size(
+        width = (width - strokeWidth).coerceAtLeast(0f),
+        height = (height - strokeWidth).coerceAtLeast(0f),
+    )
+    val borderRadius = (radius - halfStroke).coerceAtLeast(0f)
+    val borderCornerRadius = CornerRadius(borderRadius, borderRadius)
+
+    when (glassStyle) {
+        GlassStyle.SOLID -> {
+            drawRoundRect(
+                color = accentColor.copy(alpha = 0.18f),
+                topLeft = topLeft,
+                size = bubbleSize,
+                cornerRadius = cornerRadius,
+            )
+            drawRoundRect(
+                color = accentColor.copy(alpha = 0.32f),
+                topLeft = borderTopLeft,
+                size = borderSize,
+                cornerRadius = borderCornerRadius,
+                style = Stroke(width = strokeWidth),
+            )
+        }
+
+        GlassStyle.FROSTED -> {
+            drawRoundRect(
+                color = accentColor.copy(alpha = 0.18f),
+                topLeft = topLeft,
+                size = bubbleSize,
+                cornerRadius = cornerRadius,
+            )
+            val sheenBrush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = if (palette.isLightCanvas) 0.36f else 0.18f),
+                    Color.White.copy(alpha = 0.02f),
+                ),
+                startY = top,
+                endY = top + height,
+            )
+            drawRoundRect(
+                brush = sheenBrush,
+                topLeft = topLeft,
+                size = bubbleSize,
+                cornerRadius = cornerRadius,
+            )
+            val borderBrush = Brush.verticalGradient(
+                colors = if (palette.isLightCanvas) {
+                    listOf(
+                        Color.White.copy(alpha = 0.52f),
+                        accentColor.copy(alpha = 0.24f),
+                    )
+                } else {
+                    listOf(
+                        Color.White.copy(alpha = 0.28f),
+                        Color.White.copy(alpha = 0.08f),
+                    )
+                },
+                startY = top,
+                endY = top + height,
+            )
+            drawRoundRect(
+                brush = borderBrush,
+                topLeft = borderTopLeft,
+                size = borderSize,
+                cornerRadius = borderCornerRadius,
+                style = Stroke(width = strokeWidth),
+            )
+        }
+
+        GlassStyle.CLEAR -> {
+            drawRoundRect(
+                color = accentColor.copy(alpha = 0.14f),
+                topLeft = topLeft,
+                size = bubbleSize,
+                cornerRadius = cornerRadius,
+            )
+            val glintBrush = Brush.verticalGradient(
+                0.0f to Color.White.copy(alpha = if (palette.isLightCanvas) 0.52f else 0.30f),
+                0.28f to Color.White.copy(alpha = if (palette.isLightCanvas) 0.04f else 0.03f),
+                0.55f to Color.Transparent,
+                1.0f to Color.Transparent,
+                startY = top,
+                endY = top + height,
+            )
+            drawRoundRect(
+                brush = glintBrush,
+                topLeft = topLeft,
+                size = bubbleSize,
+                cornerRadius = cornerRadius,
+            )
+            val borderBrush = Brush.verticalGradient(
+                colors = if (palette.isLightCanvas) {
+                    listOf(
+                        Color.White.copy(alpha = 0.78f),
+                        Color(0xFF090C12).copy(alpha = 0.16f),
+                    )
+                } else {
+                    listOf(
+                        Color.White.copy(alpha = 0.48f),
+                        Color.White.copy(alpha = 0.12f),
+                    )
+                },
+                startY = top,
+                endY = top + height,
+            )
+            drawRoundRect(
+                brush = borderBrush,
+                topLeft = borderTopLeft,
+                size = borderSize,
+                cornerRadius = borderCornerRadius,
+                style = Stroke(width = strokeWidth),
+            )
+        }
+    }
+}
+
+private fun NavBubbleState.resolveDrawBounds(selectedDestination: TopLevelDestination?): Rect? {
+    if (selectedDestination == null) return null
+    val targetBounds = itemBounds[selectedDestination]
+    if (lastAnimatedDestination == null || (lastAnimatedDestination == selectedDestination && !isAnimating)) {
+        return targetBounds
+    }
+    return Rect(
+        left = left.value,
+        top = top.value,
+        right = left.value + width.value,
+        bottom = top.value + height.value,
+    )
+}
+
 @Composable
 private fun BottomGlassNavigationBar(
     currentDestination: NavDestination?,
@@ -361,6 +592,12 @@ private fun BottomGlassNavigationBar(
 ) {
     val shapes = LocalJupiterShapes.current
     val palette = LocalJupiterPalette.current
+    val glassStyle = LocalGlassStyle.current
+    val accentColor = MaterialTheme.colorScheme.primary
+    val selectedDestination = TopLevelDestination.entries.firstOrNull {
+        currentDestination.isDestinationSelected(it)
+    }
+    val bubbleState = rememberNavBubbleState(selectedDestination = selectedDestination)
 
     GlassSurface(
         modifier = modifier,
@@ -368,84 +605,107 @@ private fun BottomGlassNavigationBar(
         shape = shapes.navBar,
         elevated = true,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 8.dp)
+                .drawBehind {
+                    val bounds = bubbleState.resolveDrawBounds(selectedDestination) ?: return@drawBehind
+                    drawNavGlassBubble(
+                        left = bounds.left,
+                        top = bounds.top,
+                        width = bounds.width,
+                        height = bounds.height,
+                        cornerShape = shapes.control,
+                        glassStyle = glassStyle,
+                        palette = palette,
+                        accentColor = accentColor,
+                    )
+                },
         ) {
-            TopLevelDestination.entries.forEach { destination ->
-                val isSelected = currentDestination.isDestinationSelected(destination)
-                val accentColor = MaterialTheme.colorScheme.primary
-                val contentColor = if (isSelected) accentColor else palette.textSecondary
-                val itemBackground = if (isSelected) {
-                    accentColor.copy(alpha = 0.16f)
-                } else {
-                    Color.Transparent
-                }
-                val itemBorder = if (isSelected) {
-                    accentColor.copy(alpha = 0.28f)
-                } else {
-                    Color.Transparent
-                }
-                val itemShape = shapes.control
-
-                if (destination == TopLevelDestination.SETTINGS) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(itemShape)
-                            .background(itemBackground, itemShape)
-                            .border(width = 1.dp, color = itemBorder, shape = itemShape)
-                            .semantics {
-                                selected = isSelected
-                                contentDescription = destination.label
-                            }
-                            .clickable(
-                                role = Role.Tab,
-                                onClick = { onSelect(destination.route) },
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = destination.icon,
-                            contentDescription = null,
-                            tint = contentColor,
-                            modifier = Modifier.size(18.dp),
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TopLevelDestination.entries.forEach { destination ->
+                    val isSelected = destination == selectedDestination
+                    val itemShape = shapes.control
+                    val iconTint by animateColorAsState(
+                        targetValue = if (isSelected) accentColor else palette.textSecondary,
+                        animationSpec = tween(durationMillis = 180),
+                        label = "bottomNavIconTint_${destination.name}",
+                    )
+                    val labelColor by animateColorAsState(
+                        targetValue = if (isSelected) palette.textPrimary else palette.textSecondary,
+                        animationSpec = tween(durationMillis = 180),
+                        label = "bottomNavLabelColor_${destination.name}",
+                    )
+                    val boundsModifier = Modifier.onPlaced { coords ->
+                        val pos = coords.positionInParent()
+                        val rect = Rect(
+                            pos.x,
+                            pos.y,
+                            pos.x + coords.size.width,
+                            pos.y + coords.size.height,
                         )
+                        if (bubbleState.itemBounds[destination] != rect) {
+                            bubbleState.itemBounds[destination] = rect
+                        }
                     }
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .height(48.dp)
-                            .clip(itemShape)
-                            .background(itemBackground, itemShape)
-                            .border(width = 1.dp, color = itemBorder, shape = itemShape)
-                            .semantics {
-                                selected = isSelected
-                                contentDescription = destination.label
-                            }
-                            .clickable(
-                                role = Role.Tab,
-                                onClick = { onSelect(destination.route) },
+
+                    if (destination == TopLevelDestination.SETTINGS) {
+                        Box(
+                            modifier = boundsModifier
+                                .size(48.dp)
+                                .clip(itemShape)
+                                .semantics {
+                                    selected = isSelected
+                                    contentDescription = destination.label
+                                }
+                                .clickable(
+                                    role = Role.Tab,
+                                    onClick = { onSelect(destination.route) },
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = destination.icon,
+                                contentDescription = null,
+                                tint = iconTint,
+                                modifier = Modifier.size(18.dp),
                             )
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(
-                            imageVector = destination.icon,
-                            contentDescription = null,
-                            tint = contentColor,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            text = destination.label,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isSelected) palette.textPrimary else contentColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        }
+                    } else {
+                        Row(
+                            modifier = boundsModifier
+                                .height(48.dp)
+                                .clip(itemShape)
+                                .semantics {
+                                    selected = isSelected
+                                    contentDescription = destination.label
+                                }
+                                .clickable(
+                                    role = Role.Tab,
+                                    onClick = { onSelect(destination.route) },
+                                )
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = destination.icon,
+                                contentDescription = null,
+                                tint = iconTint,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = destination.label,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = labelColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
@@ -464,6 +724,15 @@ private fun SideGlassNavigationRail(
     val railWidth = if (expanded) 204.dp else 80.dp
     val shapes = LocalJupiterShapes.current
     val palette = LocalJupiterPalette.current
+    val glassStyle = LocalGlassStyle.current
+    val accentColor = MaterialTheme.colorScheme.primary
+    val selectedDestination = TopLevelDestination.entries.firstOrNull {
+        currentDestination.isDestinationSelected(it)
+    }
+    val bubbleState = rememberNavBubbleState(
+        selectedDestination = selectedDestination,
+        layoutKey = expanded,
+    )
 
     GlassSurface(
         modifier = modifier.width(railWidth),
@@ -471,110 +740,133 @@ private fun SideGlassNavigationRail(
         shape = shapes.navBar,
         elevated = true,
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = if (expanded) Alignment.Start else Alignment.CenterHorizontally,
+                .padding(horizontal = 12.dp, vertical = 20.dp)
+                .drawBehind {
+                    val bounds = bubbleState.resolveDrawBounds(selectedDestination) ?: return@drawBehind
+                    drawNavGlassBubble(
+                        left = bounds.left,
+                        top = bounds.top,
+                        width = bounds.width,
+                        height = bounds.height,
+                        cornerShape = shapes.control,
+                        glassStyle = glassStyle,
+                        palette = palette,
+                        accentColor = accentColor,
+                    )
+                },
         ) {
-            if (expanded) {
-                Text(
-                    text = "Jupiter",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = palette.textPrimary,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                )
-            } else {
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-
-            TopLevelDestination.entries.forEach { destination ->
-                val isSelected = currentDestination.isDestinationSelected(destination)
-                val accentColor = MaterialTheme.colorScheme.primary
-                val iconColor = if (isSelected) accentColor else palette.textSecondary
-                val itemBackground = if (isSelected) {
-                    accentColor.copy(alpha = 0.16f)
-                } else {
-                    Color.Transparent
-                }
-                val itemBorder = if (isSelected) {
-                    accentColor.copy(alpha = 0.28f)
-                } else {
-                    Color.Transparent
-                }
-                val itemShape = shapes.control
-
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = if (expanded) Alignment.Start else Alignment.CenterHorizontally,
+            ) {
                 if (expanded) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                            .clip(itemShape)
-                            .background(itemBackground, itemShape)
-                            .border(width = 1.dp, color = itemBorder, shape = itemShape)
-                            .semantics {
-                                selected = isSelected
-                                contentDescription = destination.label
-                            }
-                            .clickable(
-                                role = Role.Tab,
-                                onClick = { onSelect(destination.route) },
-                            )
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon(
-                            imageVector = destination.icon,
-                            contentDescription = null,
-                            tint = iconColor,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            text = destination.label,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isSelected) palette.textPrimary else palette.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    Text(
+                        text = "Jupiter",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = palette.textPrimary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
                 } else {
-                    Column(
-                        modifier = Modifier
-                            .width(56.dp)
-                            .height(52.dp)
-                            .clip(itemShape)
-                            .background(itemBackground, itemShape)
-                            .border(width = 1.dp, color = itemBorder, shape = itemShape)
-                            .semantics {
-                                selected = isSelected
-                                contentDescription = destination.label
-                            }
-                            .clickable(
-                                role = Role.Tab,
-                                onClick = { onSelect(destination.route) },
-                            ),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(
-                            imageVector = destination.icon,
-                            contentDescription = null,
-                            tint = iconColor,
-                            modifier = Modifier.size(18.dp),
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+
+                TopLevelDestination.entries.forEach { destination ->
+                    val isSelected = destination == selectedDestination
+                    val itemShape = shapes.control
+                    val iconTint by animateColorAsState(
+                        targetValue = if (isSelected) accentColor else palette.textSecondary,
+                        animationSpec = tween(durationMillis = 180),
+                        label = "railNavIconTint_${destination.name}",
+                    )
+                    val labelColor by animateColorAsState(
+                        targetValue = if (isSelected) palette.textPrimary else palette.textSecondary,
+                        animationSpec = tween(durationMillis = 180),
+                        label = "railNavLabelColor_${destination.name}",
+                    )
+                    val boundsModifier = Modifier.onPlaced { coords ->
+                        val pos = coords.positionInParent()
+                        val rect = Rect(
+                            pos.x,
+                            pos.y,
+                            pos.x + coords.size.width,
+                            pos.y + coords.size.height,
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = destination.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isSelected) palette.textPrimary else palette.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        if (bubbleState.itemBounds[destination] != rect) {
+                            bubbleState.itemBounds[destination] = rect
+                        }
+                    }
+
+                    if (expanded) {
+                        Row(
+                            modifier = boundsModifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .clip(itemShape)
+                                .semantics {
+                                    selected = isSelected
+                                    contentDescription = destination.label
+                                }
+                                .clickable(
+                                    role = Role.Tab,
+                                    onClick = { onSelect(destination.route) },
+                                )
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(
+                                imageVector = destination.icon,
+                                contentDescription = null,
+                                tint = iconTint,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = destination.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = labelColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else {
+                        Column(
+                            modifier = boundsModifier
+                                .width(56.dp)
+                                .height(52.dp)
+                                .clip(itemShape)
+                                .semantics {
+                                    selected = isSelected
+                                    contentDescription = destination.label
+                                }
+                                .clickable(
+                                    role = Role.Tab,
+                                    onClick = { onSelect(destination.route) },
+                                ),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                imageVector = destination.icon,
+                                contentDescription = null,
+                                tint = iconTint,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = destination.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = labelColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }

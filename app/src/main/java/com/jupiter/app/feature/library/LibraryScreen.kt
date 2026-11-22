@@ -213,7 +213,6 @@ fun LibraryScreen(
             viewModel.setFolderHidden(folderName, hidden)
         },
         onRemoveFolder = viewModel::removeFolder,
-        onRestoreRemovedFolder = viewModel::restoreRemovedFolder,
         onRemoveCustomFolder = viewModel::removeCustomFolder,
         onSearchQueryChange = viewModel::onSearchQueryChange,
         onViewModeChange = viewModel::setViewMode,
@@ -238,7 +237,6 @@ internal fun LibraryContent(
     onDismissManageFolders: () -> Unit,
     onToggleFolderHidden: (folderName: String, hidden: Boolean) -> Unit,
     onRemoveFolder: (LocalFolderSummary) -> Unit,
-    onRestoreRemovedFolder: (String) -> Unit,
     onRemoveCustomFolder: (treeUri: String) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onViewModeChange: (LibraryViewMode) -> Unit,
@@ -398,12 +396,10 @@ internal fun LibraryContent(
             customFolders = uiState.customFolders,
             hiddenFolders = uiState.hiddenFolders,
             hiddenFolderNames = uiState.hiddenFolderNames,
-            removedFolderNames = uiState.removedFolderNames,
             onDismiss = onDismissManageFolders,
             onAddFolderClick = onAddFolderClick,
             onRemoveCustomFolder = onRemoveCustomFolder,
             onToggleFolderHidden = onToggleFolderHidden,
-            onRestoreRemovedFolder = onRestoreRemovedFolder,
         )
     }
 }
@@ -1164,18 +1160,15 @@ private fun ManageFoldersSheet(
     customFolders: List<CustomFolderEntry>,
     hiddenFolders: Set<String>,
     hiddenFolderNames: List<String>,
-    removedFolderNames: List<String>,
     onDismiss: () -> Unit,
     onAddFolderClick: () -> Unit,
     onRemoveCustomFolder: (String) -> Unit,
     onToggleFolderHidden: (folderName: String, hidden: Boolean) -> Unit,
-    onRestoreRemovedFolder: (String) -> Unit,
 ) {
     val shapes = LocalJupiterShapes.current
     val accent = MaterialTheme.colorScheme.primary
     val onAccent = MaterialTheme.colorScheme.onPrimary
     var hiddenExpanded by remember(visible) { mutableStateOf(false) }
-    var removedExpanded by remember(visible) { mutableStateOf(false) }
 
     GlassAdaptiveSheet(
         visible = visible,
@@ -1350,19 +1343,6 @@ private fun ManageFoldersSheet(
                     actionLabel = "Unhide",
                     actionDescription = { "Unhide $it" },
                     onAction = { onToggleFolderHidden(it, false) },
-                )
-            }
-
-            if (removedFolderNames.isNotEmpty()) {
-                CollapsibleFolderListSection(
-                    title = "Removed folders (${removedFolderNames.size})",
-                    leadingIcon = Icons.Outlined.DeleteOutline,
-                    expanded = removedExpanded,
-                    onToggleExpanded = { removedExpanded = !removedExpanded },
-                    folderNames = removedFolderNames,
-                    actionLabel = "Restore",
-                    actionDescription = { "Restore $it" },
-                    onAction = onRestoreRemovedFolder,
                 )
             }
         }

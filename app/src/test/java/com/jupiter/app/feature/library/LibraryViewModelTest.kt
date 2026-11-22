@@ -293,7 +293,23 @@ class LibraryViewModelTest {
     }
 
     @Test
-    fun `removing device folder excludes it from folders visibleVideos and hiddenFolderNames and restore brings it back`() = runTest {
+    fun `removing device folder excludes it from folders visibleVideos and hiddenFolderNames and re-adding via addCustomFolder restores it`() = runTest {
+        val moviesTreeUri = "content://com.android.externalstorage.documents/tree/primary%3AMovies"
+        fakeRepository.customVideosByTree[moviesTreeUri] = listOf(
+            LocalVideoItem(
+                id = -201L,
+                contentUri = "$moviesTreeUri/document/primary%3AMovies%2FBig%20Buck%20Bunny.mkv",
+                displayName = "Big Buck Bunny.mkv",
+                bucketName = "Movies",
+                durationMs = 0L,
+                sizeBytes = 1_200_000_000L,
+                dateModifiedSec = 1_700_000_200L,
+                width = 0,
+                height = 0,
+                sourceTreeUri = moviesTreeUri,
+            ),
+        )
+
         viewModel.onPermissionResult(true)
         runCurrent()
         viewModel.selectFolder("Movies")
@@ -307,23 +323,82 @@ class LibraryViewModelTest {
 
         val removedState = viewModel.uiState.value
         assertNull(removedState.selectedFolder)
-        assertEquals(listOf("Movies"), removedState.removedFolderNames)
+        assertTrue("Movies" in removedState.removedFolders)
         assertTrue(removedState.hiddenFolderNames.isEmpty())
         assertFalse("Movies" in removedState.hiddenFolders)
         assertEquals(listOf("Downloads"), removedState.folders.map { it.name })
         assertEquals(listOf(2L), removedState.visibleVideos.map { it.id })
 
-        viewModel.restoreRemovedFolder("Movies")
+        // Re-adding via addCustomFolder clears removedFolders and restores the folder
+        viewModel.addCustomFolder(moviesTreeUri)
         runCurrent()
 
         val restoredState = viewModel.uiState.value
-        assertTrue(restoredState.removedFolderNames.isEmpty())
+        assertFalse("Movies" in restoredState.removedFolders)
+        assertEquals(listOf("Movies"), restoredState.customFolders.map { it.displayName })
         assertEquals(listOf("Movies", "Downloads"), restoredState.folders.map { it.name })
         assertEquals(listOf(2L, 1L, 3L), restoredState.visibleVideos.map { it.id })
     }
 
     @Test
-    fun `removeFolder on custom SAF folder removes SAF URI without adding to removedFolderNames`() = runTest {
+    fun `removing re-added MediaStore plus SAF folder removes SAF URI and excludes MediaStore folder again`() = runTest {
+        val moviesTreeUri = "content://com.android.externalstorage.documents/tree/primary%3AMovies"
+        fakeRepository.customVideosByTree[moviesTreeUri] = listOf(
+            LocalVideoItem(
+                id = -201L,
+                contentUri = "$moviesTreeUri/document/primary%3AMovies%2FBig%20Buck%20Bunny.mkv",
+                displayName = "Big Buck Bunny.mkv",
+                bucketName = "Movies",
+                durationMs = 0L,
+                sizeBytes = 1_200_000_000L,
+                dateModifiedSec = 1_700_000_200L,
+                width = 0,
+                height = 0,
+                sourceTreeUri = moviesTreeUri,
+            ),
+            LocalVideoItem(
+                id = -202L,
+                contentUri = "$moviesTreeUri/document/primary%3AMovies%2FBonus.mkv",
+                displayName = "Bonus.mkv",
+                bucketName = "Movies",
+                durationMs = 0L,
+                sizeBytes = 150_000_000L,
+                dateModifiedSec = 1_700_000_250L,
+                width = 0,
+                height = 0,
+                sourceTreeUri = moviesTreeUri,
+            ),
+        )
+
+        viewModel.onPermissionResult(true)
+        runCurrent()
+
+        val initialMovies = viewModel.uiState.value.folders.first { it.name == "Movies" }
+        viewModel.removeFolder(initialMovies)
+        runCurrent()
+        assertTrue("Movies" in viewModel.uiState.value.removedFolders)
+
+        viewModel.addCustomFolder(moviesTreeUri)
+        runCurrent()
+        val reAddedState = viewModel.uiState.value
+        assertFalse("Movies" in reAddedState.removedFolders)
+        assertEquals(listOf("Movies"), reAddedState.customFolders.map { it.displayName })
+        val reAddedMovies = reAddedState.folders.first { it.name == "Movies" }
+        assertTrue(reAddedMovies.isCustom)
+        assertEquals(3, reAddedMovies.videoCount)
+
+        viewModel.removeFolder(reAddedMovies)
+        runCurrent()
+
+        val removedAgainState = viewModel.uiState.value
+        assertTrue(removedAgainState.customFolders.isEmpty())
+        assertTrue("Movies" in removedAgainState.removedFolders)
+        assertEquals(listOf("Downloads"), removedAgainState.folders.map { it.name })
+        assertEquals(listOf(2L), removedAgainState.visibleVideos.map { it.id })
+    }
+
+    @Test
+    fun `removeFolder on custom SAF folder removes SAF URI without adding to removedFolders`() = runTest {
         val treeUri = "content://com.android.externalstorage.documents/tree/primary%3AAnime"
         fakeRepository.customVideosByTree[treeUri] = listOf(
             LocalVideoItem(
@@ -353,7 +428,7 @@ class LibraryViewModelTest {
         val removedState = viewModel.uiState.value
         assertNull(removedState.selectedFolder)
         assertTrue(removedState.customFolders.isEmpty())
-        assertTrue(removedState.removedFolderNames.isEmpty())
+        assertTrue(removedState.removedFolders.isEmpty())
         assertFalse("Anime" in removedState.folders.map { it.name })
     }
 
@@ -380,8 +455,20 @@ class LibraryViewModelTest {
             continueWatchingFlow.value = items
         }
 
-        override suspend fun scanLocalVideos(): List<LocalVideoItem> =
-            (videos + scanCustomFolderVideos()).distinctBy { it.contentUri }
+        override suspend fun scanLocalVideos(): List<LocalVideoItem> {
+            val safVideos = scanCustomFolderVideos()
+            if (safVideos.isEmpty()) return videos
+            val mediaStoreKeys = videos
+                .asSequence()
+                .filter { it.sizeBytes > 0L }
+                .map { Triple(it.bucketName.lowercase(), it.displayName.lowercase(), it.sizeBytes) }
+                .toSet()
+            val dedupedSaf = safVideos.filter { saf ->
+                saf.sizeBytes <= 0L ||
+                    Triple(saf.bucketName.lowercase(), saf.displayName.lowercase(), saf.sizeBytes) !in mediaStoreKeys
+            }
+            return (videos + dedupedSaf).distinctBy { it.contentUri }
+        }
 
         override suspend fun scanCustomFolderVideos(): List<LocalVideoItem> =
             customFolderUrisFlow.value.flatMap { uri -> customVideosByTree[uri].orEmpty() }
