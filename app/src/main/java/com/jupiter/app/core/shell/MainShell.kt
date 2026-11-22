@@ -74,6 +74,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -684,7 +685,7 @@ private fun BottomGlassNavigationBar(
                 },
         ) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (showNavLabels) 4.dp else 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TopLevelDestination.entries.forEach { destination ->
@@ -715,7 +716,9 @@ private fun BottomGlassNavigationBar(
 
                     if (!showNavLabels || destination == TopLevelDestination.SETTINGS) {
                         val itemSizeModifier = if (!showNavLabels) {
-                            boundsModifier.size(48.dp)
+                            boundsModifier
+                                .width(64.dp)
+                                .height(52.dp)
                         } else {
                             boundsModifier
                                 .width(48.dp)
@@ -728,6 +731,7 @@ private fun BottomGlassNavigationBar(
                             itemShape = itemShape,
                             onSelect = onSelect,
                             modifier = itemSizeModifier,
+                            iconSize = if (!showNavLabels) 24.dp else 18.dp,
                         )
                     } else {
                         Column(
@@ -899,7 +903,10 @@ private fun SideGlassNavigationRail(
                             iconTint = iconTint,
                             itemShape = itemShape,
                             onSelect = onSelect,
-                            modifier = boundsModifier.size(48.dp),
+                            modifier = boundsModifier
+                                .width(56.dp)
+                                .height(52.dp),
+                            iconSize = 24.dp,
                         )
                     } else {
                         Column(
@@ -949,6 +956,7 @@ private fun NavIconOnlyButton(
     itemShape: CornerBasedShape,
     onSelect: (Any) -> Unit,
     modifier: Modifier = Modifier,
+    iconSize: Dp = 18.dp,
 ) {
     Box(
         modifier = modifier
@@ -967,7 +975,7 @@ private fun NavIconOnlyButton(
             imageVector = destination.icon,
             contentDescription = null,
             tint = iconTint,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(iconSize),
         )
     }
 }
