@@ -145,6 +145,7 @@ private fun NavDestination?.isDestinationSelected(destination: TopLevelDestinati
 @Composable
 fun MainShell(
     adaptiveInfo: JupiterAdaptiveInfo = LocalJupiterAdaptiveInfo.current,
+    showNavLabels: Boolean = true,
     pendingExternalLaunch: ExternalMediaLaunch? = null,
     onExternalLaunchConsumed: () -> Unit = {},
     playbackQueueManager: PlaybackQueueManager = remember { PlaybackQueueManager() },
@@ -349,6 +350,7 @@ fun MainShell(
                         BottomGlassNavigationBar(
                             currentDestination = currentDestination,
                             hazeState = hazeState,
+                            showNavLabels = showNavLabels,
                             onSelect = navigateToTopLevel,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
@@ -362,6 +364,7 @@ fun MainShell(
                             currentDestination = currentDestination,
                             hazeState = hazeState,
                             expanded = false,
+                            showNavLabels = showNavLabels,
                             onSelect = navigateToTopLevel,
                             modifier = Modifier
                                 .align(Alignment.CenterStart)
@@ -377,6 +380,7 @@ fun MainShell(
                             currentDestination = currentDestination,
                             hazeState = hazeState,
                             expanded = true,
+                            showNavLabels = showNavLabels,
                             onSelect = navigateToTopLevel,
                             modifier = Modifier
                                 .align(Alignment.CenterStart)
@@ -640,6 +644,7 @@ private fun NavBubbleState.resolveDrawBounds(selectedDestination: TopLevelDestin
 private fun BottomGlassNavigationBar(
     currentDestination: NavDestination?,
     hazeState: HazeState,
+    showNavLabels: Boolean,
     onSelect: (Any) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -650,7 +655,10 @@ private fun BottomGlassNavigationBar(
     val selectedDestination = TopLevelDestination.entries.firstOrNull {
         currentDestination.isDestinationSelected(it)
     }
-    val bubbleState = rememberNavBubbleState(selectedDestination = selectedDestination)
+    val bubbleState = rememberNavBubbleState(
+        selectedDestination = selectedDestination,
+        layoutKey = showNavLabels,
+    )
 
     GlassSurface(
         modifier = modifier,
@@ -705,29 +713,22 @@ private fun BottomGlassNavigationBar(
                         }
                     }
 
-                    if (destination == TopLevelDestination.SETTINGS) {
-                        Box(
-                            modifier = boundsModifier
+                    if (!showNavLabels || destination == TopLevelDestination.SETTINGS) {
+                        val itemSizeModifier = if (!showNavLabels) {
+                            boundsModifier.size(48.dp)
+                        } else {
+                            boundsModifier
                                 .width(48.dp)
                                 .height(52.dp)
-                                .clip(itemShape)
-                                .semantics {
-                                    selected = isSelected
-                                    contentDescription = destination.label
-                                }
-                                .clickable(
-                                    role = Role.Tab,
-                                    onClick = { onSelect(destination.route) },
-                                ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = destination.icon,
-                                contentDescription = null,
-                                tint = iconTint,
-                                modifier = Modifier.size(18.dp),
-                            )
                         }
+                        NavIconOnlyButton(
+                            destination = destination,
+                            isSelected = isSelected,
+                            iconTint = iconTint,
+                            itemShape = itemShape,
+                            onSelect = onSelect,
+                            modifier = itemSizeModifier,
+                        )
                     } else {
                         Column(
                             modifier = boundsModifier
@@ -774,6 +775,7 @@ private fun SideGlassNavigationRail(
     currentDestination: NavDestination?,
     hazeState: HazeState,
     expanded: Boolean,
+    showNavLabels: Boolean,
     onSelect: (Any) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -787,7 +789,7 @@ private fun SideGlassNavigationRail(
     }
     val bubbleState = rememberNavBubbleState(
         selectedDestination = selectedDestination,
-        layoutKey = expanded,
+        layoutKey = expanded to showNavLabels,
     )
 
     GlassSurface(
@@ -890,6 +892,15 @@ private fun SideGlassNavigationRail(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
+                    } else if (!showNavLabels) {
+                        NavIconOnlyButton(
+                            destination = destination,
+                            isSelected = isSelected,
+                            iconTint = iconTint,
+                            itemShape = itemShape,
+                            onSelect = onSelect,
+                            modifier = boundsModifier.size(48.dp),
+                        )
                     } else {
                         Column(
                             modifier = boundsModifier
@@ -927,6 +938,37 @@ private fun SideGlassNavigationRail(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NavIconOnlyButton(
+    destination: TopLevelDestination,
+    isSelected: Boolean,
+    iconTint: Color,
+    itemShape: CornerBasedShape,
+    onSelect: (Any) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(itemShape)
+            .semantics {
+                selected = isSelected
+                contentDescription = destination.label
+            }
+            .clickable(
+                role = Role.Tab,
+                onClick = { onSelect(destination.route) },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = destination.icon,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 

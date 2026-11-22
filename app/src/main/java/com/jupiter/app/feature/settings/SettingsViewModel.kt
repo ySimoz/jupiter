@@ -163,6 +163,12 @@ class SettingsViewModel internal constructor(
         }
     }
 
+    fun setShowNavLabels(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setShowNavLabels(enabled)
+        }
+    }
+
     fun importMpvConf(content: String, fileName: String? = null) {
         if (content.isBlank()) {
             _uiState.update { it.copy(feedbackMessage = "Selected file is empty") }

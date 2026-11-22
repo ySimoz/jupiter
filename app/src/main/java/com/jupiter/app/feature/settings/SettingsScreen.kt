@@ -169,6 +169,7 @@ fun SettingsScreen(
         onSelectAccentArgb = viewModel::setAccentArgb,
         onSelectGlassStyle = viewModel::setGlassStyle,
         onCornerRoundnessChange = viewModel::setCornerRoundnessPercent,
+        onShowNavLabelsChange = viewModel::setShowNavLabels,
         onImportMpvConf = {
             mpvConfPickerLauncher.launch(
                 arrayOf("text/*", "application/octet-stream", "*/*"),
@@ -205,6 +206,7 @@ internal fun SettingsContent(
     onSelectAccentArgb: (Int) -> Unit,
     onSelectGlassStyle: (GlassStyle) -> Unit,
     onCornerRoundnessChange: (Int) -> Unit,
+    onShowNavLabelsChange: (Boolean) -> Unit,
     onImportMpvConf: () -> Unit,
     onResetMpvConf: () -> Unit,
     onRequestClearHistory: () -> Unit,
@@ -287,6 +289,7 @@ internal fun SettingsContent(
                     onOpenAccentColorPicker = { showAccentWheel = true },
                     onSelectGlassStyle = onSelectGlassStyle,
                     onCornerRoundnessChange = onCornerRoundnessChange,
+                    onShowNavLabelsChange = onShowNavLabelsChange,
                 )
             }
 
@@ -573,6 +576,7 @@ private fun AppearanceSettingsCard(
     onOpenAccentColorPicker: () -> Unit,
     onSelectGlassStyle: (GlassStyle) -> Unit,
     onCornerRoundnessChange: (Int) -> Unit,
+    onShowNavLabelsChange: (Boolean) -> Unit,
 ) {
     val palette = LocalJupiterPalette.current
     val accent = MaterialTheme.colorScheme.primary
@@ -641,6 +645,12 @@ private fun AppearanceSettingsCard(
                 }
             }
         }
+
+        SettingsSwitchRow(
+            label = "Navigation labels",
+            checked = preferences.showNavLabels,
+            onCheckedChange = onShowNavLabelsChange,
+        )
     }
 }
 
@@ -1283,6 +1293,7 @@ private fun SettingsPhonePreview() {
                 onSelectAccentArgb = {},
                 onSelectGlassStyle = {},
                 onCornerRoundnessChange = {},
+                onShowNavLabelsChange = {},
                 onImportMpvConf = {},
                 onResetMpvConf = {},
                 onRequestClearHistory = {},
@@ -1326,6 +1337,7 @@ private fun SettingsTabletPreview() {
                     onSelectAccentArgb = {},
                     onSelectGlassStyle = {},
                     onCornerRoundnessChange = {},
+                    onShowNavLabelsChange = {},
                     onImportMpvConf = {},
                     onResetMpvConf = {},
                     onRequestClearHistory = {},

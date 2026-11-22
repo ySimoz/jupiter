@@ -48,6 +48,7 @@ interface SettingsRepository {
     suspend fun setGestureVolumeEnabled(enabled: Boolean)
     suspend fun setGestureSeekEnabled(enabled: Boolean)
     suspend fun setCornerRoundnessPercent(percent: Int)
+    suspend fun setShowNavLabels(enabled: Boolean)
     suspend fun saveCustomMpvConf(content: String)
     suspend fun resetCustomMpvConf()
     suspend fun clearAppCache(): Boolean
@@ -178,6 +179,7 @@ class DataStoreSettingsRepository @Inject constructor(
                 cornerRoundnessPercent = SettingsValidation.clampCornerRoundnessPercent(
                     prefs[Keys.CORNER_ROUNDNESS_PERCENT] ?: SettingsValidation.DEFAULT_CORNER_ROUNDNESS_PERCENT,
                 ),
+                showNavLabels = prefs[Keys.SHOW_NAV_LABELS] ?: true,
             )
         }
 
@@ -268,6 +270,10 @@ class DataStoreSettingsRepository @Inject constructor(
         dataStore.edit { it[Keys.CORNER_ROUNDNESS_PERCENT] = clamped }
     }
 
+    override suspend fun setShowNavLabels(enabled: Boolean) {
+        dataStore.edit { it[Keys.SHOW_NAV_LABELS] = enabled }
+    }
+
     override suspend fun saveCustomMpvConf(content: String) {
         withContext(Dispatchers.IO) {
             MpvConfStore.write(configDir, content)
@@ -330,6 +336,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val GESTURE_SEEK_ENABLED = booleanPreferencesKey("gesture_seek_enabled")
         val CUSTOM_MPV_CONF = stringPreferencesKey("custom_mpv_conf")
         val CORNER_ROUNDNESS_PERCENT = intPreferencesKey("corner_roundness_percent")
+        val SHOW_NAV_LABELS = booleanPreferencesKey("show_nav_labels")
     }
 }
 
@@ -418,6 +425,10 @@ class InMemorySettingsRepository(
     override suspend fun setCornerRoundnessPercent(percent: Int) {
         val clamped = SettingsValidation.clampCornerRoundnessPercent(percent)
         _preferences.update { it.copy(cornerRoundnessPercent = clamped) }
+    }
+
+    override suspend fun setShowNavLabels(enabled: Boolean) {
+        _preferences.update { it.copy(showNavLabels = enabled) }
     }
 
     override suspend fun saveCustomMpvConf(content: String) {

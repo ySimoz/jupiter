@@ -59,6 +59,7 @@ class SettingsRepositoryTest {
 
         assertEquals(UserPreferences(), repo.preferences.first())
         assertTrue(repo.current.autoPlayNext)
+        assertTrue(repo.current.showNavLabels)
         assertEquals(0xFF090C12.toInt(), repo.current.backgroundArgb)
         assertEquals(0xFFE6ECF5.toInt(), repo.current.accentArgb)
         assertEquals(GlassStyle.FROSTED, repo.current.glassStyle)
@@ -195,6 +196,7 @@ class SettingsRepositoryTest {
         repo.setGestureBrightnessEnabled(false)
         repo.setGestureVolumeEnabled(false)
         repo.setGestureSeekEnabled(false)
+        repo.setShowNavLabels(false)
         repo.saveCustomMpvConf("demuxer-max-bytes=64MiB")
 
         val updated = repo.preferences.first()
@@ -209,6 +211,7 @@ class SettingsRepositoryTest {
         assertFalse(updated.gestureBrightnessEnabled)
         assertFalse(updated.gestureVolumeEnabled)
         assertFalse(updated.gestureSeekEnabled)
+        assertFalse(updated.showNavLabels)
         assertEquals("demuxer-max-bytes=64MiB", updated.customMpvConf)
         assertEquals("demuxer-max-bytes=64MiB", MpvConfStore.read(configDir))
 
@@ -221,5 +224,8 @@ class SettingsRepositoryTest {
 
         repo.setAutoPlayNext(true)
         assertTrue(repo.preferences.first().autoPlayNext)
+
+        repo.setShowNavLabels(true)
+        assertTrue(repo.preferences.first().showNavLabels)
     }
 }

@@ -69,6 +69,7 @@ class SettingsViewModelTest {
         assertEquals(0xFFE6ECF5.toInt(), viewModel.uiState.value.preferences.accentArgb)
         assertEquals(GlassStyle.FROSTED, viewModel.uiState.value.preferences.glassStyle)
         assertTrue(viewModel.uiState.value.preferences.autoPlayNext)
+        assertTrue(viewModel.uiState.value.preferences.showNavLabels)
 
         viewModel.setHwDecMode(HwDecMode.MEDIACODEC)
         viewModel.setDoubleTapSeekSec(15)
@@ -87,6 +88,7 @@ class SettingsViewModelTest {
         viewModel.setGestureVolumeEnabled(false)
         viewModel.setGestureSeekEnabled(false)
         viewModel.setCornerRoundnessPercent(80)
+        viewModel.setShowNavLabels(false)
         runCurrent()
 
         val prefs = viewModel.uiState.value.preferences
@@ -107,6 +109,7 @@ class SettingsViewModelTest {
         assertFalse(prefs.gestureVolumeEnabled)
         assertFalse(prefs.gestureSeekEnabled)
         assertEquals(80, prefs.cornerRoundnessPercent)
+        assertFalse(prefs.showNavLabels)
 
         viewModel.setCornerRoundnessPercent(150)
         runCurrent()
@@ -119,6 +122,10 @@ class SettingsViewModelTest {
         viewModel.setAutoPlayNext(true)
         runCurrent()
         assertTrue(viewModel.uiState.value.preferences.autoPlayNext)
+
+        viewModel.setShowNavLabels(true)
+        runCurrent()
+        assertTrue(viewModel.uiState.value.preferences.showNavLabels)
     }
 
     @Test

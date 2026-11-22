@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainShell(
                         adaptiveInfo = adaptiveInfo,
+                        showNavLabels = prefs.showNavLabels,
                         pendingExternalLaunch = pendingExternalLaunch,
                         onExternalLaunchConsumed = { pendingExternalLaunch = null },
                         playbackQueueManager = playbackQueueManager,

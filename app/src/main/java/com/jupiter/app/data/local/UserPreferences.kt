@@ -23,6 +23,7 @@ data class UserPreferences(
     val gestureSeekEnabled: Boolean = true,
     val customMpvConf: String = "",
     val cornerRoundnessPercent: Int = 50,
+    val showNavLabels: Boolean = true,
 )
 
 object MpvConfStore {
