@@ -89,6 +89,7 @@ import com.jupiter.app.core.designsystem.ColorWheelDialog
 import com.jupiter.app.core.designsystem.ColorWheelMath
 import com.jupiter.app.core.designsystem.GlassDialog
 import com.jupiter.app.core.designsystem.GlassPill
+import com.jupiter.app.core.designsystem.GlassStyle
 import com.jupiter.app.core.designsystem.GlassSurface
 import com.jupiter.app.core.designsystem.JupiterTheme
 import com.jupiter.app.core.designsystem.LocalJupiterPalette
@@ -165,7 +166,7 @@ fun SettingsScreen(
         onPreferredSubtitleLangChange = viewModel::setPreferredSubtitleLang,
         onSelectBackgroundArgb = viewModel::setBackgroundArgb,
         onSelectAccentArgb = viewModel::setAccentArgb,
-        onGlassBlurChange = viewModel::setGlassBlurEnabled,
+        onSelectGlassStyle = viewModel::setGlassStyle,
         onCornerRoundnessChange = viewModel::setCornerRoundnessPercent,
         onImportMpvConf = {
             mpvConfPickerLauncher.launch(
@@ -200,7 +201,7 @@ internal fun SettingsContent(
     onPreferredSubtitleLangChange: (String) -> Unit,
     onSelectBackgroundArgb: (Int) -> Unit,
     onSelectAccentArgb: (Int) -> Unit,
-    onGlassBlurChange: (Boolean) -> Unit,
+    onSelectGlassStyle: (GlassStyle) -> Unit,
     onCornerRoundnessChange: (Int) -> Unit,
     onImportMpvConf: () -> Unit,
     onResetMpvConf: () -> Unit,
@@ -281,7 +282,7 @@ internal fun SettingsContent(
                     preferences = prefs,
                     onOpenBackgroundColorPicker = { showBackgroundWheel = true },
                     onOpenAccentColorPicker = { showAccentWheel = true },
-                    onGlassBlurChange = onGlassBlurChange,
+                    onSelectGlassStyle = onSelectGlassStyle,
                     onCornerRoundnessChange = onCornerRoundnessChange,
                 )
             }
@@ -560,7 +561,7 @@ private fun AppearanceSettingsCard(
     preferences: UserPreferences,
     onOpenBackgroundColorPicker: () -> Unit,
     onOpenAccentColorPicker: () -> Unit,
-    onGlassBlurChange: (Boolean) -> Unit,
+    onSelectGlassStyle: (GlassStyle) -> Unit,
     onCornerRoundnessChange: (Int) -> Unit,
 ) {
     val palette = LocalJupiterPalette.current
@@ -615,11 +616,21 @@ private fun AppearanceSettingsCard(
             )
         }
 
-        SettingsSwitchRow(
-            label = "Glass blur",
-            checked = preferences.glassBlurEnabled,
-            onCheckedChange = onGlassBlurChange,
-        )
+        SettingsChipSection(label = "Glass style") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                GlassStyle.entries.forEach { style ->
+                    SettingsChoiceChip(
+                        label = style.label,
+                        selected = preferences.glassStyle == style,
+                        onClick = { onSelectGlassStyle(style) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -853,6 +864,7 @@ private fun SettingsChoiceChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     tabular: Boolean = false,
 ) {
     val palette = LocalJupiterPalette.current
@@ -876,7 +888,7 @@ private fun SettingsChoiceChip(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .height(36.dp)
             .clip(shape)
             .background(bgColor, shape)
@@ -1258,7 +1270,7 @@ private fun SettingsPhonePreview() {
                 onPreferredSubtitleLangChange = {},
                 onSelectBackgroundArgb = {},
                 onSelectAccentArgb = {},
-                onGlassBlurChange = {},
+                onSelectGlassStyle = {},
                 onCornerRoundnessChange = {},
                 onImportMpvConf = {},
                 onResetMpvConf = {},
@@ -1300,7 +1312,7 @@ private fun SettingsTabletPreview() {
                     onPreferredSubtitleLangChange = {},
                     onSelectBackgroundArgb = {},
                     onSelectAccentArgb = {},
-                    onGlassBlurChange = {},
+                    onSelectGlassStyle = {},
                     onCornerRoundnessChange = {},
                     onImportMpvConf = {},
                     onResetMpvConf = {},

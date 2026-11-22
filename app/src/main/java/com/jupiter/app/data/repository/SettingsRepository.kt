@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.jupiter.app.core.designsystem.GlassStyle
 import com.jupiter.app.core.di.MpvConfigDir
 import com.jupiter.app.data.local.MpvConfStore
 import com.jupiter.app.data.local.UserPreferences
@@ -41,7 +42,7 @@ interface SettingsRepository {
     suspend fun setPreferredSubtitleLang(codes: String)
     suspend fun setBackgroundArgb(argb: Int)
     suspend fun setAccentArgb(argb: Int)
-    suspend fun setGlassBlurEnabled(enabled: Boolean)
+    suspend fun setGlassStyle(style: GlassStyle)
     suspend fun setGestureBrightnessEnabled(enabled: Boolean)
     suspend fun setGestureVolumeEnabled(enabled: Boolean)
     suspend fun setGestureSeekEnabled(enabled: Boolean)
@@ -104,10 +105,22 @@ internal object SettingsValidation {
         return legacyHex ?: DEFAULT_ACCENT_ARGB
     }
 
-    fun resolveGlassBlurEnabled(
-        storedGlassBlurEnabled: Boolean?,
+    fun resolveGlassStyle(
+        storedGlassStyle: String?,
+        legacyGlassBlurEnabled: Boolean?,
         legacyReducedTransparency: Boolean?,
-    ): Boolean = storedGlassBlurEnabled ?: !(legacyReducedTransparency ?: false)
+    ): GlassStyle {
+        val parsed = storedGlassStyle?.let { raw ->
+            GlassStyle.entries.firstOrNull { it.name == raw }
+        }
+        if (parsed != null) {
+            return parsed
+        }
+        if (legacyGlassBlurEnabled == false || legacyReducedTransparency == true) {
+            return GlassStyle.SOLID
+        }
+        return GlassStyle.FROSTED
+    }
 }
 
 @Singleton
@@ -151,8 +164,9 @@ class DataStoreSettingsRepository @Inject constructor(
                     storedAccentArgb = prefs[Keys.CUSTOM_ACCENT_ARGB],
                     legacyAccentStyle = prefs[Keys.ACCENT_STYLE],
                 ),
-                glassBlurEnabled = SettingsValidation.resolveGlassBlurEnabled(
-                    storedGlassBlurEnabled = prefs[Keys.GLASS_BLUR_ENABLED],
+                glassStyle = SettingsValidation.resolveGlassStyle(
+                    storedGlassStyle = prefs[Keys.GLASS_STYLE],
+                    legacyGlassBlurEnabled = prefs[Keys.GLASS_BLUR_ENABLED],
                     legacyReducedTransparency = prefs[Keys.REDUCED_TRANSPARENCY],
                 ),
                 gestureBrightnessEnabled = prefs[Keys.GESTURE_BRIGHTNESS_ENABLED] ?: true,
@@ -223,9 +237,10 @@ class DataStoreSettingsRepository @Inject constructor(
         }
     }
 
-    override suspend fun setGlassBlurEnabled(enabled: Boolean) {
+    override suspend fun setGlassStyle(style: GlassStyle) {
         dataStore.edit { prefs ->
-            prefs[Keys.GLASS_BLUR_ENABLED] = enabled
+            prefs[Keys.GLASS_STYLE] = style.name
+            prefs.remove(Keys.GLASS_BLUR_ENABLED)
             prefs.remove(Keys.REDUCED_TRANSPARENCY)
         }
     }
@@ -302,6 +317,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val DYNAMIC_ACCENT_ENABLED = booleanPreferencesKey("dynamic_accent_enabled")
         val REDUCED_TRANSPARENCY = booleanPreferencesKey("reduced_transparency")
         val GLASS_BLUR_ENABLED = booleanPreferencesKey("glass_blur_enabled")
+        val GLASS_STYLE = stringPreferencesKey("glass_style")
         val GESTURE_BRIGHTNESS_ENABLED = booleanPreferencesKey("gesture_brightness_enabled")
         val GESTURE_VOLUME_ENABLED = booleanPreferencesKey("gesture_volume_enabled")
         val GESTURE_SEEK_ENABLED = booleanPreferencesKey("gesture_seek_enabled")
@@ -372,8 +388,8 @@ class InMemorySettingsRepository(
         _preferences.update { it.copy(accentArgb = opaque) }
     }
 
-    override suspend fun setGlassBlurEnabled(enabled: Boolean) {
-        _preferences.update { it.copy(glassBlurEnabled = enabled) }
+    override suspend fun setGlassStyle(style: GlassStyle) {
+        _preferences.update { it.copy(glassStyle = style) }
     }
 
     override suspend fun setGestureBrightnessEnabled(enabled: Boolean) {

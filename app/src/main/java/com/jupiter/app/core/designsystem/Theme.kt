@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -36,8 +37,8 @@ object JupiterColors {
     val TextPrimary = Color(0xFFF2F5FA)
     val TextSecondary = Color(0xFF9AA4B2)
     val BorderSubtle = Color.White.copy(alpha = 0.08f)
-    val BorderSpecularTop = Color.White.copy(alpha = 0.16f)
-    val BorderSpecularBottom = Color.White.copy(alpha = 0.04f)
+    val BorderSpecularTop = Color.White.copy(alpha = 0.26f)
+    val BorderSpecularBottom = Color.White.copy(alpha = 0.06f)
 }
 
 data class JupiterPalette(
@@ -75,8 +76,8 @@ fun deriveJupiterPalette(canvasArgb: Int): JupiterPalette {
             textPrimary = Color(0xFF111620),
             textSecondary = Color(0xFF4B5565),
             borderSubtle = Color(0xFF090C12).copy(alpha = 0.09f),
-            borderSpecularTop = Color(0xFF090C12).copy(alpha = 0.14f),
-            borderSpecularBottom = Color(0xFF090C12).copy(alpha = 0.05f),
+            borderSpecularTop = Color(0xFF090C12).copy(alpha = 0.18f),
+            borderSpecularBottom = Color(0xFF090C12).copy(alpha = 0.07f),
             isLightCanvas = true,
         )
     } else {
@@ -94,8 +95,8 @@ fun deriveJupiterPalette(canvasArgb: Int): JupiterPalette {
             textPrimary = Color(0xFFF2F5FA),
             textSecondary = Color(textSecondaryArgb),
             borderSubtle = Color.White.copy(alpha = 0.08f),
-            borderSpecularTop = Color.White.copy(alpha = 0.16f),
-            borderSpecularBottom = Color.White.copy(alpha = 0.04f),
+            borderSpecularTop = Color.White.copy(alpha = 0.26f),
+            borderSpecularBottom = Color.White.copy(alpha = 0.06f),
             isLightCanvas = false,
         )
     }
@@ -242,13 +243,19 @@ fun computeJupiterShapes(percent: Int): JupiterShapes {
 
 val LocalJupiterShapes = staticCompositionLocalOf { computeJupiterShapes(50) }
 
-val LocalGlassBlurEnabled = staticCompositionLocalOf { true }
+enum class GlassStyle(val label: String) {
+    SOLID("Solid"),
+    FROSTED("Frosted"),
+    CLEAR("Clear"),
+}
+
+val LocalGlassStyle = staticCompositionLocalOf { GlassStyle.FROSTED }
 
 @Composable
 fun JupiterTheme(
     backgroundArgb: Int = 0xFF090C12.toInt(),
     accentArgb: Int = 0xFFE6ECF5.toInt(),
-    glassBlurEnabled: Boolean = true,
+    glassStyle: GlassStyle = GlassStyle.FROSTED,
     cornerRoundnessPercent: Int = 50,
     content: @Composable () -> Unit,
 ) {
@@ -272,7 +279,7 @@ fun JupiterTheme(
 
     CompositionLocalProvider(
         LocalJupiterPalette provides palette,
-        LocalGlassBlurEnabled provides glassBlurEnabled,
+        LocalGlassStyle provides glassStyle,
         LocalJupiterShapes provides jupiterShapes,
     ) {
         MaterialTheme(
@@ -289,22 +296,47 @@ fun AmbientGlassBackground(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val palette = LocalJupiterPalette.current
-    val ambientAccentTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.04f)
+    val primary = MaterialTheme.colorScheme.primary
+    val topLeftGlow = remember(palette, primary) {
+        lerp(palette.glassElevated, primary, 0.12f).copy(
+            alpha = if (palette.isLightCanvas) 0.56f else 0.72f,
+        )
+    }
+    val topLeftAccent = remember(primary) { primary.copy(alpha = 0.08f) }
+    val bottomRightGlow = remember(palette, primary) {
+        lerp(palette.glassElevated, primary, 0.08f).copy(
+            alpha = if (palette.isLightCanvas) 0.44f else 0.56f,
+        )
+    }
+    val bottomRightAccent = remember(primary) { primary.copy(alpha = 0.07f) }
+    val verticalTopTint = remember(palette) {
+        palette.glassElevated.copy(alpha = if (palette.isLightCanvas) 0.22f else 0.28f)
+    }
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(palette.canvas)
             .drawBehind {
-                val topLeftCenter = Offset(x = size.width * 0.18f, y = size.height * 0.14f)
-                val bottomRightCenter = Offset(x = size.width * 0.85f, y = size.height * 0.82f)
-                val primaryRadius = maxOf(size.width, size.height) * 0.72f
-                val secondaryRadius = maxOf(size.width, size.height) * 0.64f
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            verticalTopTint,
+                            Color.Transparent,
+                            palette.canvas.copy(alpha = 0.20f),
+                        ),
+                    ),
+                )
+
+                val topLeftCenter = Offset(x = size.width * 0.16f, y = size.height * 0.12f)
+                val bottomRightCenter = Offset(x = size.width * 0.86f, y = size.height * 0.84f)
+                val primaryRadius = maxOf(size.width, size.height) * 0.78f
+                val secondaryRadius = maxOf(size.width, size.height) * 0.68f
 
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            palette.glassElevated.copy(alpha = 0.45f),
-                            ambientAccentTint,
+                            topLeftGlow,
+                            topLeftAccent,
                             Color.Transparent,
                         ),
                         center = topLeftCenter,
@@ -316,7 +348,8 @@ fun AmbientGlassBackground(
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            palette.glassElevated.copy(alpha = 0.35f),
+                            bottomRightGlow,
+                            bottomRightAccent,
                             Color.Transparent,
                         ),
                         center = bottomRightCenter,

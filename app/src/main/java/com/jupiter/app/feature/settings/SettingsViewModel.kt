@@ -2,6 +2,7 @@ package com.jupiter.app.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jupiter.app.core.designsystem.GlassStyle
 import com.jupiter.app.data.local.UserPreferences
 import com.jupiter.app.data.repository.MediaRepository
 import com.jupiter.app.data.repository.SettingsRepository
@@ -126,9 +127,9 @@ class SettingsViewModel internal constructor(
         }
     }
 
-    fun setGlassBlurEnabled(enabled: Boolean) {
+    fun setGlassStyle(style: GlassStyle) {
         viewModelScope.launch {
-            settingsRepository.setGlassBlurEnabled(enabled)
+            settingsRepository.setGlassStyle(style)
         }
     }
 

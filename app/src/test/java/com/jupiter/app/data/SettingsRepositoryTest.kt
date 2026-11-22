@@ -1,5 +1,6 @@
 package com.jupiter.app.data
 
+import com.jupiter.app.core.designsystem.GlassStyle
 import com.jupiter.app.data.local.MpvConfStore
 import com.jupiter.app.data.local.UserPreferences
 import com.jupiter.app.data.repository.InMemorySettingsRepository
@@ -59,7 +60,7 @@ class SettingsRepositoryTest {
         assertEquals(UserPreferences(), repo.preferences.first())
         assertEquals(0xFF090C12.toInt(), repo.current.backgroundArgb)
         assertEquals(0xFFE6ECF5.toInt(), repo.current.accentArgb)
-        assertTrue(repo.current.glassBlurEnabled)
+        assertEquals(GlassStyle.FROSTED, repo.current.glassStyle)
 
         assertEquals(
             0xFF090C12.toInt(),
@@ -99,11 +100,34 @@ class SettingsRepositoryTest {
             SettingsValidation.resolveAccentArgb(storedAccentArgb = 0x33ABCDEF, legacyAccentStyle = "ICE"),
         )
 
-        assertTrue(SettingsValidation.resolveGlassBlurEnabled(null, null))
-        assertFalse(SettingsValidation.resolveGlassBlurEnabled(null, true))
-        assertTrue(SettingsValidation.resolveGlassBlurEnabled(null, false))
-        assertTrue(SettingsValidation.resolveGlassBlurEnabled(true, true))
-        assertFalse(SettingsValidation.resolveGlassBlurEnabled(false, false))
+        assertEquals(
+            GlassStyle.FROSTED,
+            SettingsValidation.resolveGlassStyle(null, null, null),
+        )
+        assertEquals(
+            GlassStyle.SOLID,
+            SettingsValidation.resolveGlassStyle(null, false, null),
+        )
+        assertEquals(
+            GlassStyle.SOLID,
+            SettingsValidation.resolveGlassStyle(null, null, true),
+        )
+        assertEquals(
+            GlassStyle.FROSTED,
+            SettingsValidation.resolveGlassStyle(null, true, false),
+        )
+        assertEquals(
+            GlassStyle.CLEAR,
+            SettingsValidation.resolveGlassStyle("CLEAR", false, true),
+        )
+        assertEquals(
+            GlassStyle.SOLID,
+            SettingsValidation.resolveGlassStyle("SOLID", true, false),
+        )
+        assertEquals(
+            GlassStyle.FROSTED,
+            SettingsValidation.resolveGlassStyle("UNKNOWN", true, false),
+        )
 
         for (valid in listOf(5, 10, 15, 30)) {
             repo.setDoubleTapSeekSec(valid)
@@ -165,7 +189,7 @@ class SettingsRepositoryTest {
         repo.setAutoEnterPip(false)
         repo.setBackgroundArgb(0xFF102030.toInt())
         repo.setAccentArgb(0xFF7BC9A6.toInt())
-        repo.setGlassBlurEnabled(false)
+        repo.setGlassStyle(GlassStyle.CLEAR)
         repo.setGestureBrightnessEnabled(false)
         repo.setGestureVolumeEnabled(false)
         repo.setGestureSeekEnabled(false)
@@ -178,7 +202,7 @@ class SettingsRepositoryTest {
         assertFalse(updated.autoEnterPip)
         assertEquals(0xFF102030.toInt(), updated.backgroundArgb)
         assertEquals(0xFF7BC9A6.toInt(), updated.accentArgb)
-        assertFalse(updated.glassBlurEnabled)
+        assertEquals(GlassStyle.CLEAR, updated.glassStyle)
         assertFalse(updated.gestureBrightnessEnabled)
         assertFalse(updated.gestureVolumeEnabled)
         assertFalse(updated.gestureSeekEnabled)

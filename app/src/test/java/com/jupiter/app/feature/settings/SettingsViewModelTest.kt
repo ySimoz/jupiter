@@ -1,5 +1,6 @@
 package com.jupiter.app.feature.settings
 
+import com.jupiter.app.core.designsystem.GlassStyle
 import com.jupiter.app.data.local.MediaHistoryEntity
 import com.jupiter.app.data.media.LocalVideoItem
 import com.jupiter.app.data.repository.InMemorySettingsRepository
@@ -66,7 +67,7 @@ class SettingsViewModelTest {
         runCurrent()
         assertEquals(0xFF090C12.toInt(), viewModel.uiState.value.preferences.backgroundArgb)
         assertEquals(0xFFE6ECF5.toInt(), viewModel.uiState.value.preferences.accentArgb)
-        assertTrue(viewModel.uiState.value.preferences.glassBlurEnabled)
+        assertEquals(GlassStyle.FROSTED, viewModel.uiState.value.preferences.glassStyle)
 
         viewModel.setHwDecMode(HwDecMode.MEDIACODEC)
         viewModel.setDoubleTapSeekSec(15)
@@ -79,7 +80,7 @@ class SettingsViewModelTest {
         viewModel.setPreferredSubtitleLang("eng")
         viewModel.setBackgroundArgb(0xFF112233.toInt())
         viewModel.setAccentArgb(0xFF7DA8F5.toInt())
-        viewModel.setGlassBlurEnabled(false)
+        viewModel.setGlassStyle(GlassStyle.CLEAR)
         viewModel.setGestureBrightnessEnabled(false)
         viewModel.setGestureVolumeEnabled(false)
         viewModel.setGestureSeekEnabled(false)
@@ -98,7 +99,7 @@ class SettingsViewModelTest {
         assertEquals("eng", prefs.preferredSubtitleLang)
         assertEquals(0xFF112233.toInt(), prefs.backgroundArgb)
         assertEquals(0xFF7DA8F5.toInt(), prefs.accentArgb)
-        assertFalse(prefs.glassBlurEnabled)
+        assertEquals(GlassStyle.CLEAR, prefs.glassStyle)
         assertFalse(prefs.gestureBrightnessEnabled)
         assertFalse(prefs.gestureVolumeEnabled)
         assertFalse(prefs.gestureSeekEnabled)

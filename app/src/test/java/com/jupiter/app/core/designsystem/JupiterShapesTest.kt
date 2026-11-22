@@ -4,7 +4,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import com.jupiter.app.data.local.UserPreferences
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class JupiterShapesTest {
@@ -55,11 +54,11 @@ class JupiterShapesTest {
     }
 
     @Test
-    fun `UserPreferences defaults to obsidian background, monochrome accent, and glass blur enabled`() {
+    fun `UserPreferences defaults to obsidian background, monochrome accent, and frosted glass`() {
         val defaults = UserPreferences()
         assertEquals(0xFF090C12.toInt(), defaults.backgroundArgb)
         assertEquals(0xFFE6ECF5.toInt(), defaults.accentArgb)
-        assertTrue(defaults.glassBlurEnabled)
+        assertEquals(GlassStyle.FROSTED, defaults.glassStyle)
         assertEquals(50, defaults.cornerRoundnessPercent)
     }
 }

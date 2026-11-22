@@ -46,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.lerp
@@ -69,37 +70,80 @@ fun GlassSurface(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val palette = LocalJupiterPalette.current
-    val glassBlurEnabled = LocalGlassBlurEnabled.current
+    val glassStyle = LocalGlassStyle.current
     val baseColor = if (elevated) palette.glassElevated else palette.glassPrimary
-    val supportsLiveBlur = glassBlurEnabled && hazeState != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val supportsLiveBlur = glassStyle == GlassStyle.FROSTED &&
+        hazeState != null &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+    val sheenBrush = remember(palette.isLightCanvas) {
+        val topAlpha = if (palette.isLightCanvas) 0.32f else 0.10f
+        Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = topAlpha),
+                Color.Transparent,
+            ),
+        )
+    }
 
     val surfaceModifier = modifier
         .clip(shape)
         .then(
-            if (supportsLiveBlur) {
-                val liveTintAlpha = if (elevated) 0.72f else 0.68f
-                Modifier.hazeEffect(
-                    state = hazeState,
-                    style = HazeStyle(
-                        backgroundColor = baseColor,
-                        tints = listOf(HazeTint(baseColor.copy(alpha = liveTintAlpha))),
-                        blurRadius = 20.dp,
-                        fallbackTint = HazeTint(baseColor.copy(alpha = 0.88f)),
-                    ),
-                )
-            } else {
-                val fallbackAlpha = when {
-                    !glassBlurEnabled -> 1.0f
-                    elevated -> 0.92f
-                    else -> 0.88f
+            when {
+                glassStyle == GlassStyle.SOLID -> {
+                    Modifier.background(baseColor, shape)
                 }
-                Modifier.background(baseColor.copy(alpha = fallbackAlpha), shape)
+
+                supportsLiveBlur -> {
+                    val liveTintAlpha = if (elevated) 0.52f else 0.46f
+                    val fallbackAlpha = if (elevated) 0.80f else 0.74f
+                    Modifier
+                        .hazeEffect(
+                            state = hazeState,
+                            style = HazeStyle(
+                                backgroundColor = baseColor,
+                                tints = listOf(HazeTint(baseColor.copy(alpha = liveTintAlpha))),
+                                blurRadius = 24.dp,
+                                fallbackTint = HazeTint(baseColor.copy(alpha = fallbackAlpha)),
+                            ),
+                        )
+                        .background(sheenBrush, shape)
+                }
+
+                glassStyle == GlassStyle.FROSTED -> {
+                    val translucentAlpha = if (elevated) 0.80f else 0.74f
+                    Modifier
+                        .background(baseColor.copy(alpha = translucentAlpha), shape)
+                        .background(sheenBrush, shape)
+                }
+
+                else -> {
+                    // GlassStyle.CLEAR: translucent glass without blur.
+                    val clearAlpha = when {
+                        hazeState != null -> if (elevated) 0.60f else 0.54f
+                        elevated -> 0.64f
+                        else -> 0.56f
+                    }
+                    Modifier
+                        .background(baseColor.copy(alpha = clearAlpha), shape)
+                        .background(sheenBrush, shape)
+                }
             },
         )
-        .border(
-            width = 1.dp,
-            brush = palette.specularBorderBrush(),
-            shape = shape,
+        .then(
+            if (glassStyle == GlassStyle.SOLID) {
+                Modifier.border(
+                    width = 1.dp,
+                    color = palette.borderSubtle,
+                    shape = shape,
+                )
+            } else {
+                Modifier.border(
+                    width = 1.dp,
+                    brush = palette.specularBorderBrush(),
+                    shape = shape,
+                )
+            },
         )
 
     Box(modifier = surfaceModifier) {
@@ -142,29 +186,59 @@ fun GlassIconButton(
     icon: @Composable () -> Unit,
 ) {
     val palette = LocalJupiterPalette.current
-    val glassBlurEnabled = LocalGlassBlurEnabled.current
+    val glassStyle = LocalGlassStyle.current
     val accentColor = MaterialTheme.colorScheme.primary
-    val supportsLiveBlur = glassBlurEnabled && hazeState != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val targetBackground = when {
-        !glassBlurEnabled -> when {
+    val supportsLiveBlur = glassStyle == GlassStyle.FROSTED &&
+        hazeState != null &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val sheenBrush = remember(palette.isLightCanvas) {
+        val topAlpha = if (palette.isLightCanvas) 0.32f else 0.10f
+        Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = topAlpha),
+                Color.Transparent,
+            ),
+        )
+    }
+    val targetBackground = when (glassStyle) {
+        GlassStyle.SOLID -> when {
             !enabled -> palette.glassPrimary
             selected -> lerp(palette.glassPrimary, accentColor, 0.22f)
             else -> palette.glassPrimary
         }
-        supportsLiveBlur -> when {
-            !enabled -> palette.glassPrimary.copy(alpha = 0.56f)
-            selected -> accentColor.copy(alpha = 0.18f)
-            else -> palette.glassPrimary.copy(alpha = 0.68f)
+
+        GlassStyle.FROSTED -> if (supportsLiveBlur) {
+            when {
+                !enabled -> palette.glassPrimary.copy(alpha = 0.42f)
+                selected -> accentColor.copy(alpha = 0.22f)
+                else -> palette.glassPrimary.copy(alpha = 0.46f)
+            }
+        } else {
+            when {
+                !enabled -> palette.glassPrimary.copy(alpha = 0.74f)
+                selected -> lerp(palette.glassPrimary, accentColor, 0.22f).copy(alpha = 0.80f)
+                else -> palette.glassPrimary.copy(alpha = 0.74f)
+            }
         }
-        else -> when {
-            !enabled -> palette.glassPrimary.copy(alpha = 0.88f)
-            selected -> lerp(palette.glassPrimary, accentColor, 0.22f).copy(alpha = 0.92f)
-            else -> palette.glassPrimary.copy(alpha = 0.88f)
+
+        GlassStyle.CLEAR -> if (hazeState != null) {
+            when {
+                !enabled -> palette.glassPrimary.copy(alpha = 0.50f)
+                selected -> lerp(palette.glassPrimary, accentColor, 0.22f).copy(alpha = 0.60f)
+                else -> palette.glassPrimary.copy(alpha = 0.54f)
+            }
+        } else {
+            when {
+                !enabled -> palette.glassPrimary.copy(alpha = 0.52f)
+                selected -> lerp(palette.glassPrimary, accentColor, 0.22f).copy(alpha = 0.64f)
+                else -> palette.glassPrimary.copy(alpha = 0.56f)
+            }
         }
     }
     val targetBorder = when {
         !enabled -> palette.borderSubtle.copy(alpha = 0.04f)
         selected -> accentColor.copy(alpha = 0.48f)
+        glassStyle == GlassStyle.SOLID -> palette.borderSubtle
         else -> palette.borderSpecularTop
     }
     val targetContentColor = when {
@@ -197,20 +271,36 @@ fun GlassIconButton(
             .clip(CircleShape)
             .then(
                 if (supportsLiveBlur) {
-                    Modifier.hazeEffect(
-                        state = hazeState,
-                        style = HazeStyle(
-                            backgroundColor = palette.glassPrimary,
-                            tints = listOf(HazeTint(backgroundColor)),
-                            blurRadius = 20.dp,
-                            fallbackTint = HazeTint(palette.glassPrimary.copy(alpha = 0.88f)),
-                        ),
-                    )
+                    Modifier
+                        .hazeEffect(
+                            state = hazeState,
+                            style = HazeStyle(
+                                backgroundColor = palette.glassPrimary,
+                                tints = listOf(HazeTint(backgroundColor)),
+                                blurRadius = 24.dp,
+                                fallbackTint = HazeTint(palette.glassPrimary.copy(alpha = 0.74f)),
+                            ),
+                        )
+                        .background(sheenBrush, CircleShape)
+                } else if (glassStyle != GlassStyle.SOLID) {
+                    Modifier
+                        .background(backgroundColor, CircleShape)
+                        .background(sheenBrush, CircleShape)
                 } else {
                     Modifier.background(backgroundColor, CircleShape)
                 },
             )
-            .border(width = 1.dp, color = borderColor, shape = CircleShape)
+            .then(
+                if (glassStyle != GlassStyle.SOLID && enabled && !selected) {
+                    Modifier.border(
+                        width = 1.dp,
+                        brush = palette.specularBorderBrush(),
+                        shape = CircleShape,
+                    )
+                } else {
+                    Modifier.border(width = 1.dp, color = borderColor, shape = CircleShape)
+                },
+            )
             .semantics { this.contentDescription = contentDescription }
             .clickable(
                 enabled = enabled,

@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity() {
             JupiterTheme(
                 backgroundArgb = prefs.backgroundArgb,
                 accentArgb = prefs.accentArgb,
-                glassBlurEnabled = prefs.glassBlurEnabled,
+                glassStyle = prefs.glassStyle,
                 cornerRoundnessPercent = prefs.cornerRoundnessPercent,
             ) {
                 val adaptiveInfo = rememberJupiterAdaptiveInfo(this)
