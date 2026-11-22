@@ -103,6 +103,9 @@ class PlayerViewModel @Inject constructor(
     private var currentMediaUri: String? = null
     private var currentDisplayName: String = ""
     private var currentIsNetworkStream: Boolean = false
+    private var hasLoadedCurrentMedia: Boolean = false
+    private var hasExitedCurrentSession: Boolean = false
+    private var pendingResumeMs: Long = 0L
 
     private var lastUri: String? = null
     private var lastTitle: String = ""
@@ -138,8 +141,17 @@ class PlayerViewModel @Inject constructor(
 
         viewModelScope.launch {
             playbackController.state.collect { playback ->
+                if (!hasLoadedCurrentMedia && playback.durationMs > 0L && playback.positionMs > 0L) {
+                    hasLoadedCurrentMedia = true
+                }
                 if (!_uiState.value.isScrubbing) {
-                    _positionMs.value = playback.positionMs
+                    val canAcceptZeroPosition = hasLoadedCurrentMedia && pendingResumeMs == 0L
+                    if (playback.positionMs > 0L || canAcceptZeroPosition) {
+                        if (playback.positionMs > 0L) {
+                            pendingResumeMs = 0L
+                        }
+                        _positionMs.value = playback.positionMs
+                    }
                 }
 
                 val pausedChanged = playback.isPaused != lastWasPaused
@@ -159,6 +171,11 @@ class PlayerViewModel @Inject constructor(
                         playback.mediaTitle!!
                     } else {
                         current.title
+                    }
+                    val resolvedDurationMs = if (!hasLoadedCurrentMedia && playback.durationMs == 0L) {
+                        current.durationMs
+                    } else {
+                        playback.durationMs
                     }
                     val resolvedSpeed = if (current.isSpeedBoosted) current.speed else playback.speed
                     val resolvedAudioId = if (audioTracksChanged) {
@@ -183,7 +200,7 @@ class PlayerViewModel @Inject constructor(
                         isPaused = playback.isPaused,
                         isBuffering = playback.isBuffering,
                         bufferingPercent = playback.bufferingPercent,
-                        durationMs = playback.durationMs,
+                        durationMs = resolvedDurationMs,
                         speed = resolvedSpeed,
                         chapters = playback.chapters,
                         videoZoom = playback.videoZoom,
@@ -222,27 +239,31 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             playbackController.events.collect { event ->
                 when (event) {
+                    is MpvEvent.FileLoaded -> {
+                        hasLoadedCurrentMedia = true
+                    }
+
                     is MpvEvent.Error -> {
                         _uiState.update { it.copy(errorMessage = event.message) }
                     }
 
                     is MpvEvent.EndFile -> {
-                        progressSaveJob?.cancel()
-                        progressSaveJob = null
-                        abandonAudioFocus()
-                        if (!event.isError) {
-                            val duration = _uiState.value.durationMs
-                            val posAtEnd = if (event.isEof && duration > 0L) {
-                                duration
-                            } else {
-                                _positionMs.value
-                            }
-                            launchImmediateProgressSave(overridePositionMs = posAtEnd)
-                        } else {
+                        if (event.isError) {
+                            progressSaveJob?.cancel()
+                            progressSaveJob = null
+                            abandonAudioFocus()
                             _uiState.update { current ->
                                 val msg = current.errorMessage
                                     ?: "Playback failed (error ${event.errorCode})"
                                 current.copy(errorMessage = msg)
+                            }
+                        } else if (event.isEof && hasLoadedCurrentMedia) {
+                            progressSaveJob?.cancel()
+                            progressSaveJob = null
+                            abandonAudioFocus()
+                            val duration = _uiState.value.durationMs
+                            if (duration > 0L) {
+                                launchImmediateProgressSave(overridePositionMs = duration)
                             }
                         }
                     }
@@ -263,6 +284,9 @@ class PlayerViewModel @Inject constructor(
         lastTitle = title
         lastIsNetworkStream = isNetworkStream
         lastHeadersJson = headersJson
+        hasLoadedCurrentMedia = false
+        hasExitedCurrentSession = false
+        pendingResumeMs = 0L
 
         loadMediaJob?.cancel()
         loadMediaJob = viewModelScope.launch {
@@ -310,6 +334,7 @@ class PlayerViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     title = resolvedTitle,
+                    durationMs = if (previousUri != null) 0L else it.durationMs,
                     errorMessage = null,
                     isPaused = false,
                     abLoop = AbLoopState(),
@@ -335,8 +360,11 @@ class PlayerViewModel @Inject constructor(
             } else {
                 0L
             }
-            val loadOptions = if (resumeMs > 0L) {
+            pendingResumeMs = resumeMs
+            if (resumeMs > 0L || previousUri != null) {
                 _positionMs.value = resumeMs
+            }
+            val loadOptions = if (resumeMs > 0L) {
                 listOf("start=+${resumeMs / 1000.0}")
             } else {
                 emptyList()
@@ -510,6 +538,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun seekBy(deltaSeconds: Int) {
+        pendingResumeMs = 0L
         val target = clampSeekTarget(
             targetMs = _positionMs.value + deltaSeconds * 1000L,
             durationMs = _uiState.value.durationMs,
@@ -522,6 +551,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun seekTo(targetMs: Long) {
+        pendingResumeMs = 0L
         val clamped = clampSeekTarget(targetMs, _uiState.value.durationMs)
         _positionMs.value = clamped
         playbackController.seekTo(clamped)
@@ -552,6 +582,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun onScrubFinish(targetMs: Long) {
+        pendingResumeMs = 0L
         val clamped = clampSeekTarget(targetMs, _uiState.value.durationMs)
         _positionMs.value = clamped
         _uiState.update {
@@ -569,6 +600,7 @@ class PlayerViewModel @Inject constructor(
             flashUnlockHint()
             return
         }
+        pendingResumeMs = 0L
         val stepSeconds = _uiState.value.doubleTapSeekSec
         val sameSideActive = lastDoubleTapSide == side && doubleTapJob?.isActive == true
         accumulatedDoubleTapSeconds = if (sameSideActive) {
@@ -627,6 +659,7 @@ class PlayerViewModel @Inject constructor(
 
     fun onHorizontalDragEnd(commitMs: Long) {
         if (_uiState.value.isLocked || !_uiState.value.gestureSeekEnabled) return
+        pendingResumeMs = 0L
         val clamped = clampSeekTarget(commitMs, _uiState.value.durationMs)
         _positionMs.value = clamped
         _uiState.update { it.copy(gestureOverlay = GestureOverlayState.None) }
@@ -853,6 +886,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun jumpToChapter(chapter: Chapter) {
+        pendingResumeMs = 0L
         val targetMs = clampSeekTarget((chapter.timeSec * 1000.0).toLong(), _uiState.value.durationMs)
         _positionMs.value = targetMs
         playbackController.selectChapter(chapter.index)
@@ -958,8 +992,14 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    override fun onCleared() {
+    fun prepareForExit() {
+        if (hasExitedCurrentSession) return
+        hasExitedCurrentSession = true
+        loadMediaJob?.cancel()
         progressSaveJob?.cancel()
+        progressSaveJob = null
+        hudHideJob?.cancel()
+
         val uriToSave = currentMediaUri
         val titleToSave = currentDisplayName
         val posToSave = _positionMs.value
@@ -986,6 +1026,10 @@ class PlayerViewModel @Inject constructor(
         playbackController.pause()
         abandonAudioFocus(force = true)
         playbackServiceLauncher.stop()
+    }
+
+    override fun onCleared() {
+        prepareForExit()
         super.onCleared()
     }
 

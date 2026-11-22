@@ -39,12 +39,64 @@ class MediaRepositoryTest {
         assertEquals(0L, ResumeRules.normalizePositionMs(10_000L, 0L))
         assertEquals(0L, ResumeRules.normalizePositionMs(10_000L, -5L))
         assertEquals(0L, ResumeRules.normalizePositionMs(0L, 100_000L))
-        assertEquals(0L, ResumeRules.normalizePositionMs(2_999L, 100_000L))
+        assertEquals(0L, ResumeRules.normalizePositionMs(999L, 100_000L))
+        assertEquals(1_000L, ResumeRules.normalizePositionMs(1_000L, 100_000L))
         assertEquals(3_000L, ResumeRules.normalizePositionMs(3_000L, 100_000L))
         assertEquals(45_000L, ResumeRules.normalizePositionMs(45_000L, 100_000L))
         assertEquals(95_000L, ResumeRules.normalizePositionMs(95_000L, 100_000L))
         assertEquals(0L, ResumeRules.normalizePositionMs(95_001L, 100_000L))
         assertEquals(0L, ResumeRules.normalizePositionMs(100_000L, 100_000L))
+    }
+
+    @Test
+    fun `saveProgress preserves existing resume position on sub-1s save unless completed`() = runTest {
+        val fakeDao = FakeMediaHistoryDao()
+        var now = 1_000L
+        val repo = DefaultMediaRepository(
+            scanner = FakeLocalMediaScanner(emptyList()),
+            mediaHistoryDao = fakeDao,
+            clock = { now },
+        )
+        val uri = "content://media/external/video/media/42"
+
+        repo.saveProgress(
+            uri = uri,
+            displayName = "Episode.mkv",
+            positionMs = 45_000L,
+            durationMs = 120_000L,
+        )
+        assertEquals(45_000L, repo.getHistory(uri)?.positionMs)
+
+        // Sub-1s save (e.g. exiting before start seek settled) must preserve 45_000L
+        now = 2_000L
+        repo.saveProgress(
+            uri = uri,
+            displayName = "Episode.mkv",
+            positionMs = 0L,
+            durationMs = 120_000L,
+        )
+        assertEquals(45_000L, repo.getHistory(uri)?.positionMs)
+        assertEquals(listOf("Episode.mkv"), repo.observeContinueWatching().first().map { it.displayName })
+
+        now = 3_000L
+        repo.saveProgress(
+            uri = uri,
+            displayName = "Episode.mkv",
+            positionMs = 800L,
+            durationMs = 120_000L,
+        )
+        assertEquals(45_000L, repo.getHistory(uri)?.positionMs)
+
+        // >95% completion must still reset to 0L
+        now = 4_000L
+        repo.saveProgress(
+            uri = uri,
+            displayName = "Episode.mkv",
+            positionMs = 116_000L,
+            durationMs = 120_000L,
+        )
+        assertEquals(0L, repo.getHistory(uri)?.positionMs)
+        assertTrue(repo.observeContinueWatching().first().isEmpty())
     }
 
     @Test

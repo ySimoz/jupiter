@@ -1,5 +1,10 @@
 package com.jupiter.app.core.shell
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -166,14 +171,55 @@ fun MainShell(
 
     CompositionLocalProvider(LocalJupiterAdaptiveInfo provides adaptiveInfo) {
         Box(modifier = modifier.fillMaxSize()) {
-            AmbientGlassBackground(
-                modifier = Modifier
+            val backgroundModifier = if (isPlayerRoute) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier
                     .fillMaxSize()
-                    .hazeSource(state = hazeState),
+                    .hazeSource(state = hazeState)
+            }
+            AmbientGlassBackground(
+                modifier = backgroundModifier,
             ) {
                 NavHost(
                     navController = navController,
                     startDestination = LibraryRoute,
+                    enterTransition = {
+                        if (targetState.destination.hasRoute<PlayerRoute>() ||
+                            initialState.destination.hasRoute<PlayerRoute>()
+                        ) {
+                            EnterTransition.None
+                        } else {
+                            fadeIn(animationSpec = tween(160))
+                        }
+                    },
+                    exitTransition = {
+                        if (targetState.destination.hasRoute<PlayerRoute>() ||
+                            initialState.destination.hasRoute<PlayerRoute>()
+                        ) {
+                            ExitTransition.None
+                        } else {
+                            fadeOut(animationSpec = tween(160))
+                        }
+                    },
+                    popEnterTransition = {
+                        if (targetState.destination.hasRoute<PlayerRoute>() ||
+                            initialState.destination.hasRoute<PlayerRoute>()
+                        ) {
+                            EnterTransition.None
+                        } else {
+                            fadeIn(animationSpec = tween(160))
+                        }
+                    },
+                    popExitTransition = {
+                        if (targetState.destination.hasRoute<PlayerRoute>() ||
+                            initialState.destination.hasRoute<PlayerRoute>()
+                        ) {
+                            ExitTransition.None
+                        } else {
+                            fadeOut(animationSpec = tween(160))
+                        }
+                    },
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     composable<LibraryRoute> {
@@ -200,14 +246,23 @@ fun MainShell(
                             contentPadding = contentPadding,
                         )
                     }
-                    composable<PlayerRoute> { entry ->
+                    composable<PlayerRoute>(
+                        enterTransition = { EnterTransition.None },
+                        exitTransition = { ExitTransition.None },
+                        popEnterTransition = { EnterTransition.None },
+                        popExitTransition = { ExitTransition.None },
+                    ) { entry ->
                         val route = entry.toRoute<PlayerRoute>()
                         PlayerScreen(
                             mediaUri = route.mediaUri,
                             title = route.title,
                             isNetworkStream = route.isNetworkStream,
                             headersJson = route.headersJson,
-                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateBack = {
+                                if (navController.currentDestination?.hasRoute<PlayerRoute>() == true) {
+                                    navController.popBackStack()
+                                }
+                            },
                         )
                     }
                 }

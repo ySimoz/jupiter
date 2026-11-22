@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -119,8 +120,22 @@ fun PlayerScreen(
         }
     }
 
-    BackHandler(enabled = !isInPipMode && uiState.isLocked) {
-        viewModel.flashUnlockHint()
+    var exitTriggered by remember(mediaUri) { mutableStateOf(false) }
+    val handleExit: () -> Unit = {
+        if (!exitTriggered) {
+            exitTriggered = true
+            viewModel.prepareForExit()
+            viewModel.detachSurface()
+            onNavigateBack()
+        }
+    }
+
+    BackHandler(enabled = !isInPipMode) {
+        if (uiState.isLocked) {
+            viewModel.flashUnlockHint()
+        } else {
+            handleExit()
+        }
     }
 
     PlayerImmersiveBarsEffect(isHudVisible = !isInPipMode && uiState.isHudVisible && !uiState.isLocked)
@@ -166,7 +181,7 @@ fun PlayerScreen(
             PlayerHudOverlay(
                 uiState = uiState,
                 positionMsFlow = viewModel.positionMs,
-                onNavigateBack = onNavigateBack,
+                onNavigateBack = handleExit,
                 onPipClick = { pipHostController?.enterPip() },
                 onTogglePlayPause = viewModel::togglePlayPause,
                 onSeekBy = viewModel::seekBy,

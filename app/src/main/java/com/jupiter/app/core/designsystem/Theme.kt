@@ -117,6 +117,34 @@ internal fun JupiterPalette.specularBorderBrush(): Brush = Brush.linearGradient(
     colors = listOf(borderSpecularTop, borderSpecularBottom),
 )
 
+internal fun JupiterPalette.frostedBorderBrush(): Brush = Brush.linearGradient(
+    colors = if (isLightCanvas) {
+        listOf(
+            Color(0xFF090C12).copy(alpha = 0.16f),
+            Color(0xFF090C12).copy(alpha = 0.06f),
+        )
+    } else {
+        listOf(
+            Color.White.copy(alpha = 0.22f),
+            Color.White.copy(alpha = 0.06f),
+        )
+    },
+)
+
+internal fun JupiterPalette.clearBorderBrush(): Brush = Brush.linearGradient(
+    colors = if (isLightCanvas) {
+        listOf(
+            Color.White.copy(alpha = 0.65f),
+            Color(0xFF090C12).copy(alpha = 0.18f),
+        )
+    } else {
+        listOf(
+            Color.White.copy(alpha = 0.42f),
+            Color.White.copy(alpha = 0.14f),
+        )
+    },
+)
+
 private fun jupiterColorScheme(
     palette: JupiterPalette,
     primary: Color,
@@ -296,69 +324,96 @@ fun AmbientGlassBackground(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val palette = LocalJupiterPalette.current
+    val glassStyle = LocalGlassStyle.current
     val primary = MaterialTheme.colorScheme.primary
-    val topLeftGlow = remember(palette, primary) {
-        lerp(palette.glassElevated, primary, 0.12f).copy(
-            alpha = if (palette.isLightCanvas) 0.56f else 0.72f,
-        )
+    val topStartLift = remember(palette, primary) {
+        if (palette.isLightCanvas) {
+            lerp(palette.glassElevated, Color.White, 0.45f).copy(alpha = 0.65f)
+        } else {
+            lerp(lerp(palette.glassElevated, Color.White, 0.06f), primary, 0.12f).copy(alpha = 0.82f)
+        }
     }
-    val topLeftAccent = remember(primary) { primary.copy(alpha = 0.08f) }
-    val bottomRightGlow = remember(palette, primary) {
-        lerp(palette.glassElevated, primary, 0.08f).copy(
-            alpha = if (palette.isLightCanvas) 0.44f else 0.56f,
-        )
+    val topStartTint = remember(palette, primary) {
+        primary.copy(alpha = if (palette.isLightCanvas) 0.06f else 0.12f)
     }
-    val bottomRightAccent = remember(primary) { primary.copy(alpha = 0.07f) }
-    val verticalTopTint = remember(palette) {
-        palette.glassElevated.copy(alpha = if (palette.isLightCanvas) 0.22f else 0.28f)
+    val bottomEndTone = remember(palette, primary) {
+        if (palette.isLightCanvas) {
+            lerp(palette.glassElevated, Color(0xFF090C12), 0.08f).copy(alpha = 0.50f)
+        } else {
+            lerp(palette.glassElevated, primary, 0.10f).copy(alpha = 0.68f)
+        }
     }
+    val bottomEndTint = remember(palette, primary) {
+        primary.copy(alpha = if (palette.isLightCanvas) 0.05f else 0.10f)
+    }
+    val verticalTopTint = remember(palette, primary) {
+        if (palette.isLightCanvas) {
+            Color.White.copy(alpha = 0.34f)
+        } else {
+            lerp(palette.glassPrimary, primary, 0.05f).copy(alpha = 0.34f)
+        }
+    }
+    val verticalBottomTint = remember(palette) {
+        if (palette.isLightCanvas) {
+            Color(0xFF090C12).copy(alpha = 0.07f)
+        } else {
+            Color.Black.copy(alpha = 0.24f)
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(palette.canvas)
-            .drawBehind {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            verticalTopTint,
-                            Color.Transparent,
-                            palette.canvas.copy(alpha = 0.20f),
-                        ),
-                    ),
-                )
+            .then(
+                if (glassStyle == GlassStyle.SOLID) {
+                    Modifier
+                } else {
+                    Modifier.drawBehind {
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    verticalTopTint,
+                                    Color.Transparent,
+                                    verticalBottomTint,
+                                ),
+                            ),
+                        )
 
-                val topLeftCenter = Offset(x = size.width * 0.16f, y = size.height * 0.12f)
-                val bottomRightCenter = Offset(x = size.width * 0.86f, y = size.height * 0.84f)
-                val primaryRadius = maxOf(size.width, size.height) * 0.78f
-                val secondaryRadius = maxOf(size.width, size.height) * 0.68f
+                        val topStartCenter = Offset(x = size.width * 0.14f, y = size.height * 0.10f)
+                        val bottomEndCenter = Offset(x = size.width * 0.88f, y = size.height * 0.86f)
+                        val primaryRadius = maxOf(size.width, size.height) * 0.78f
+                        val secondaryRadius = maxOf(size.width, size.height) * 0.70f
 
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            topLeftGlow,
-                            topLeftAccent,
-                            Color.Transparent,
-                        ),
-                        center = topLeftCenter,
-                        radius = primaryRadius,
-                    ),
-                    radius = primaryRadius,
-                    center = topLeftCenter,
-                )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            bottomRightGlow,
-                            bottomRightAccent,
-                            Color.Transparent,
-                        ),
-                        center = bottomRightCenter,
-                        radius = secondaryRadius,
-                    ),
-                    radius = secondaryRadius,
-                    center = bottomRightCenter,
-                )
-            },
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    topStartLift,
+                                    topStartTint,
+                                    Color.Transparent,
+                                ),
+                                center = topStartCenter,
+                                radius = primaryRadius,
+                            ),
+                            radius = primaryRadius,
+                            center = topStartCenter,
+                        )
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    bottomEndTone,
+                                    bottomEndTint,
+                                    Color.Transparent,
+                                ),
+                                center = bottomEndCenter,
+                                radius = secondaryRadius,
+                            ),
+                            radius = secondaryRadius,
+                            center = bottomEndCenter,
+                        )
+                    }
+                },
+            ),
         content = content,
     )
 }

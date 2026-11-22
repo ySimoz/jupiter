@@ -45,16 +45,20 @@ interface MediaRepository {
 }
 
 object ResumeRules {
-    private const val MIN_RESUME_POSITION_MS = 3_000L
+    const val MIN_RESUME_POSITION_MS = 1_000L
     private const val COMPLETION_THRESHOLD_RATIO = 0.95
+
+    fun isCompleted(positionMs: Long, durationMs: Long): Boolean {
+        if (durationMs <= 0L) return false
+        val clamped = positionMs.coerceIn(0L, durationMs)
+        return clamped.toDouble() / durationMs.toDouble() > COMPLETION_THRESHOLD_RATIO
+    }
 
     fun normalizePositionMs(positionMs: Long, durationMs: Long): Long {
         if (durationMs <= 0L) return 0L
+        if (isCompleted(positionMs, durationMs)) return 0L
         if (positionMs < MIN_RESUME_POSITION_MS) return 0L
-        val clamped = positionMs.coerceIn(0L, durationMs)
-        val ratio = clamped.toDouble() / durationMs.toDouble()
-        if (ratio > COMPLETION_THRESHOLD_RATIO) return 0L
-        return clamped
+        return positionMs.coerceIn(0L, durationMs)
     }
 }
 
@@ -127,14 +131,25 @@ class DefaultMediaRepository(
         val normalizedPosition = ResumeRules.normalizePositionMs(positionMs, durationMs)
         val hash = UriHash.of(uri)
         val existing = mediaHistoryDao.getByHash(hash)
+        val resolvedPosition = if (
+            !ResumeRules.isCompleted(positionMs, durationMs) &&
+            positionMs < ResumeRules.MIN_RESUME_POSITION_MS &&
+            existing != null &&
+            existing.positionMs > 0L
+        ) {
+            existing.positionMs
+        } else {
+            normalizedPosition
+        }
+        val resolvedDuration = if (durationMs > 0L) durationMs else (existing?.durationMs ?: 0L)
         val resolvedName = displayName.ifBlank { existing?.displayName ?: uri }
         mediaHistoryDao.upsert(
             MediaHistoryEntity(
                 uriHash = hash,
                 uri = uri,
                 displayName = resolvedName,
-                durationMs = durationMs.coerceAtLeast(0L),
-                positionMs = normalizedPosition,
+                durationMs = resolvedDuration.coerceAtLeast(0L),
+                positionMs = resolvedPosition,
                 lastPlayedEpochMs = clock(),
                 selectedAudioTrackId = existing?.selectedAudioTrackId,
                 selectedSubTrackId = existing?.selectedSubTrackId,

@@ -1185,6 +1185,109 @@ class PlayerViewModelTest {
         assertEquals(listOf(2400 to 1080), fakeController.surfaceSizeCalls)
     }
 
+    @Test
+    fun `EndFile STOP during file replacement does not wipe progress and stale zero position does not clobber resumeMs`() = runTest {
+        val uriA = "file:///video-a.mkv"
+        val uriB = "file:///video-b.mkv"
+        val repo = FakeMediaRepository()
+        repo.seedHistory(
+            MediaHistoryEntity(
+                uriHash = UriHash.of(uriB),
+                uri = uriB,
+                displayName = "Video B",
+                durationMs = 120_000L,
+                positionMs = 40_000L,
+                lastPlayedEpochMs = 1_000L,
+            ),
+        )
+        val vm = PlayerViewModel(
+            playbackController = fakeController,
+            configDir = "/tmp/jupiter-mpv-test",
+            mediaRepository = repo,
+            persistenceDispatcher = testDispatcher,
+        )
+
+        vm.loadMedia(uri = uriA, title = "Video A")
+        runCurrent()
+        fakeController.emitEvent(MpvEvent.FileLoaded)
+        fakeController.emitState { it.copy(durationMs = 60_000L, positionMs = 15_000L, isPaused = false) }
+        runCurrent()
+
+        // Switch to Video B while Video A was playing: mpv emits EndFile(STOP) and StartFile(pos=0, dur=0)
+        vm.loadMedia(uri = uriB, title = "Video B")
+        runCurrent()
+        fakeController.emitEvent(MpvEvent.EndFile(MpvNative.END_FILE_REASON_STOP, 0))
+        fakeController.emitEvent(MpvEvent.StartFile)
+        fakeController.emitState { it.copy(positionMs = 0L, durationMs = 0L) }
+        runCurrent()
+
+        // Video B resume position must NOT be wiped in repo or clobbered in positionMs
+        assertEquals(40_000L, vm.positionMs.value)
+        assertEquals(40_000L, repo.getHistory(uriB)?.positionMs)
+        assertEquals(15_000L, repo.getHistory(uriA)?.positionMs)
+
+        // Even after FileLoaded + duration before time-pos arrives, stale 0 position must not overwrite resumeMs
+        fakeController.emitEvent(MpvEvent.FileLoaded)
+        fakeController.emitState { it.copy(durationMs = 120_000L, positionMs = 0L) }
+        runCurrent()
+        assertEquals(40_000L, vm.positionMs.value)
+
+        // Real playback updates resume tracking cleanly
+        fakeController.emitState { it.copy(positionMs = 42_000L) }
+        runCurrent()
+        assertEquals(42_000L, vm.positionMs.value)
+
+        vm.pauseIfPlaying()
+        runCurrent()
+    }
+
+    @Test
+    fun `prepareForExit saves progress immediately restores speed pauses stops service and is idempotent with onCleared`() = runTest {
+        val uri = "file:///episode.mkv"
+        val repo = FakeMediaRepository()
+        val focusController = FakeAudioFocusController()
+        val serviceLauncher = FakePlaybackServiceLauncher()
+        val vm = PlayerViewModel(
+            playbackController = fakeController,
+            configDir = "/tmp/jupiter-mpv-test",
+            mediaRepository = repo,
+            audioFocusController = focusController,
+            playbackServiceLauncher = serviceLauncher,
+            persistenceDispatcher = testDispatcher,
+        )
+
+        vm.loadMedia(uri = uri, title = "Episode")
+        fakeController.emitEvent(MpvEvent.FileLoaded)
+        fakeController.emitState { it.copy(durationMs = 120_000L, positionMs = 18_500L, isPaused = false) }
+        runCurrent()
+
+        vm.setSpeed(1.25f)
+        vm.onLongPressSpeedStart()
+        runCurrent()
+        assertEquals(2.0f, fakeController.lastSpeed, 0.001f)
+
+        vm.prepareForExit()
+        runCurrent()
+
+        assertEquals(1, repo.saveCalls.size)
+        assertEquals(18_500L, repo.getHistory(uri)?.positionMs)
+        assertEquals(1.25f, fakeController.lastSpeed, 0.001f)
+        assertTrue(fakeController.state.value.isPaused)
+        assertEquals(1, focusController.abandonCount)
+        assertEquals(1, serviceLauncher.stopCount)
+
+        // Subsequent prepareForExit() and onCleared() must be idempotent no-ops
+        vm.prepareForExit()
+        val onClearedMethod = PlayerViewModel::class.java.getDeclaredMethod("onCleared")
+        onClearedMethod.isAccessible = true
+        onClearedMethod.invoke(vm)
+        runCurrent()
+
+        assertEquals(1, repo.saveCalls.size)
+        assertEquals(1, focusController.abandonCount)
+        assertEquals(1, serviceLauncher.stopCount)
+    }
+
     private fun allocateTestSurface(): Surface {
         val unsafeClass = Class.forName("sun.misc.Unsafe")
         val field = unsafeClass.getDeclaredField("theUnsafe")
