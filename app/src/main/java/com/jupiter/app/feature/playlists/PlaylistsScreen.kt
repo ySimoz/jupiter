@@ -1,7 +1,6 @@
 package com.jupiter.app.feature.playlists
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -45,7 +44,6 @@ import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.VideoLibrary
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -59,9 +57,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -78,6 +79,7 @@ import coil3.request.crossfade
 import com.jupiter.app.core.adaptive.LocalJupiterAdaptiveInfo
 import com.jupiter.app.core.adaptive.NavigationLayout
 import com.jupiter.app.core.designsystem.GlassDialog
+import com.jupiter.app.core.designsystem.GlassDropdownMenu
 import com.jupiter.app.core.designsystem.GlassSurface
 import com.jupiter.app.core.designsystem.LocalJupiterPalette
 import com.jupiter.app.core.designsystem.LocalJupiterShapes
@@ -85,6 +87,9 @@ import com.jupiter.app.data.local.PlaylistItemEntity
 import com.jupiter.app.data.local.PlaylistSummary
 import com.jupiter.app.feature.player.QueueMediaItem
 import com.jupiter.app.feature.player.TimeFormatters
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 @Composable
 fun PlaylistsScreen(
@@ -150,6 +155,7 @@ internal fun PlaylistsContent(
     }
 
     val selectedPlaylist = uiState.selectedPlaylist
+    val screenHazeState = rememberHazeState()
     Box(modifier = modifier.fillMaxSize()) {
         if (selectedPlaylist != null) {
             PlaylistDetailView(
@@ -175,7 +181,9 @@ internal fun PlaylistsContent(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = adaptiveInfo.gridMinColumnDp.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .hazeSource(state = screenHazeState),
                 contentPadding = contentPadding,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -212,6 +220,7 @@ internal fun PlaylistsContent(
 
             CreatePlaylistFab(
                 onClick = onCreatePlaylistClick,
+                hazeState = screenHazeState,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
@@ -340,7 +349,10 @@ private fun PlaylistCard(
                     }
                 }
 
-                Box {
+                var anchorBounds by remember { mutableStateOf(Rect.Zero) }
+                Box(
+                    modifier = Modifier.onGloballyPositioned { anchorBounds = it.boundsInRoot() },
+                ) {
                     Box(
                         modifier = Modifier
                             .size(36.dp)
@@ -357,12 +369,10 @@ private fun PlaylistCard(
                         )
                     }
 
-                    DropdownMenu(
+                    GlassDropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = shapes.menu,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        anchorBounds = anchorBounds,
                     ) {
                         DropdownMenuItem(
                             text = {
@@ -682,7 +692,10 @@ private fun PlaylistItemRow(
                 }
             }
 
-            Box {
+            var anchorBounds by remember { mutableStateOf(Rect.Zero) }
+            Box(
+                modifier = Modifier.onGloballyPositioned { anchorBounds = it.boundsInRoot() },
+            ) {
                 Box(
                     modifier = Modifier
                         .size(36.dp)
@@ -699,12 +712,10 @@ private fun PlaylistItemRow(
                     )
                 }
 
-                DropdownMenu(
+                GlassDropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = shapes.menu,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    anchorBounds = anchorBounds,
                 ) {
                     DropdownMenuItem(
                         enabled = canMoveUp,
@@ -836,6 +847,7 @@ private fun EmptyPlaylistsCard(onCreateClick: () -> Unit) {
 @Composable
 private fun CreatePlaylistFab(
     onClick: () -> Unit,
+    hazeState: HazeState? = null,
     modifier: Modifier = Modifier,
 ) {
     GlassSurface(
@@ -844,7 +856,7 @@ private fun CreatePlaylistFab(
             .clip(CircleShape)
             .semantics { contentDescription = "Create playlist" }
             .clickable(role = Role.Button, onClick = onClick),
-        hazeState = null,
+        hazeState = hazeState,
         shape = CircleShape,
         elevated = true,
     ) {

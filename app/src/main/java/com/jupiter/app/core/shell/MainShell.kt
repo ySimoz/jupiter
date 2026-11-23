@@ -92,10 +92,14 @@ import com.jupiter.app.core.adaptive.LocalJupiterAdaptiveInfo
 import com.jupiter.app.core.adaptive.NavigationLayout
 import com.jupiter.app.core.adaptive.computeAdaptiveInfo
 import com.jupiter.app.core.designsystem.AmbientGlassBackground
+import com.jupiter.app.core.designsystem.GlassOverlayHostLayer
+import com.jupiter.app.core.designsystem.GlassOverlayHostState
 import com.jupiter.app.core.designsystem.GlassStyle
 import com.jupiter.app.core.designsystem.GlassSurface
+import com.jupiter.app.core.designsystem.JupiterColors
 import com.jupiter.app.core.designsystem.JupiterPalette
 import com.jupiter.app.core.designsystem.JupiterTheme
+import com.jupiter.app.core.designsystem.LocalGlassOverlayHost
 import com.jupiter.app.core.designsystem.LocalGlassStyle
 import com.jupiter.app.core.designsystem.LocalJupiterPalette
 import com.jupiter.app.core.designsystem.LocalJupiterShapes
@@ -156,7 +160,9 @@ fun MainShell(
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
-    val hazeState = rememberHazeState()
+    val navHazeState = rememberHazeState()
+    val overlayHazeState = rememberHazeState()
+    val glassOverlayHost = remember(overlayHazeState) { GlassOverlayHostState(overlayHazeState) }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val isPlayerRoute = currentDestination?.hasRoute<PlayerRoute>() == true
@@ -238,164 +244,193 @@ fun MainShell(
         onExternalLaunchConsumed()
     }
 
-    CompositionLocalProvider(LocalJupiterAdaptiveInfo provides adaptiveInfo) {
+    CompositionLocalProvider(
+        LocalJupiterAdaptiveInfo provides adaptiveInfo,
+        LocalGlassOverlayHost provides glassOverlayHost,
+    ) {
         Box(modifier = modifier.fillMaxSize()) {
-            val backgroundModifier = if (isPlayerRoute) {
-                Modifier.fillMaxSize()
-            } else {
-                Modifier
+            Box(
+                modifier = Modifier
                     .fillMaxSize()
-                    .hazeSource(state = hazeState)
-            }
-            AmbientGlassBackground(
-                modifier = backgroundModifier,
+                    .then(
+                        if (isPlayerRoute) {
+                            Modifier
+                        } else {
+                            Modifier.hazeSource(state = overlayHazeState)
+                        },
+                    ),
             ) {
-                NavHost(
-                    navController = navController,
-                    startDestination = LibraryRoute,
-                    enterTransition = {
-                        if (targetState.destination.hasRoute<PlayerRoute>() ||
-                            initialState.destination.hasRoute<PlayerRoute>()
-                        ) {
-                            EnterTransition.None
-                        } else {
-                            fadeIn(animationSpec = tween(160))
-                        }
-                    },
-                    exitTransition = {
-                        if (targetState.destination.hasRoute<PlayerRoute>() ||
-                            initialState.destination.hasRoute<PlayerRoute>()
-                        ) {
-                            ExitTransition.None
-                        } else {
-                            fadeOut(animationSpec = tween(160))
-                        }
-                    },
-                    popEnterTransition = {
-                        if (targetState.destination.hasRoute<PlayerRoute>() ||
-                            initialState.destination.hasRoute<PlayerRoute>()
-                        ) {
-                            EnterTransition.None
-                        } else {
-                            fadeIn(animationSpec = tween(160))
-                        }
-                    },
-                    popExitTransition = {
-                        if (targetState.destination.hasRoute<PlayerRoute>() ||
-                            initialState.destination.hasRoute<PlayerRoute>()
-                        ) {
-                            ExitTransition.None
-                        } else {
-                            fadeOut(animationSpec = tween(160))
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
+                val backgroundModifier = if (isPlayerRoute) {
+                    Modifier.fillMaxSize()
+                } else {
+                    Modifier
+                        .fillMaxSize()
+                        .hazeSource(state = navHazeState)
+                }
+                AmbientGlassBackground(
+                    modifier = backgroundModifier,
                 ) {
-                    composable<LibraryRoute> {
-                        LibraryScreen(
-                            contentPadding = contentPadding,
-                            onOpenMedia = { uri, title ->
-                                val isNetwork = uri.startsWith("http://", ignoreCase = true) ||
-                                    uri.startsWith("https://", ignoreCase = true) ||
-                                    uri.startsWith("rtsp://", ignoreCase = true)
-                                openPlayer(uri, title, isNetwork, null)
-                            },
-                            onOpenQueue = { items, startIndex, sourceTitle ->
-                                openQueue(items, startIndex, sourceTitle, QueueSourceKind.FOLDER)
-                            },
-                        )
+                    NavHost(
+                        navController = navController,
+                        startDestination = LibraryRoute,
+                        enterTransition = {
+                            if (targetState.destination.hasRoute<PlayerRoute>() ||
+                                initialState.destination.hasRoute<PlayerRoute>()
+                            ) {
+                                EnterTransition.None
+                            } else {
+                                fadeIn(animationSpec = tween(160))
+                            }
+                        },
+                        exitTransition = {
+                            if (targetState.destination.hasRoute<PlayerRoute>() ||
+                                initialState.destination.hasRoute<PlayerRoute>()
+                            ) {
+                                ExitTransition.None
+                            } else {
+                                fadeOut(animationSpec = tween(160))
+                            }
+                        },
+                        popEnterTransition = {
+                            if (targetState.destination.hasRoute<PlayerRoute>() ||
+                                initialState.destination.hasRoute<PlayerRoute>()
+                            ) {
+                                EnterTransition.None
+                            } else {
+                                fadeIn(animationSpec = tween(160))
+                            }
+                        },
+                        popExitTransition = {
+                            if (targetState.destination.hasRoute<PlayerRoute>() ||
+                                initialState.destination.hasRoute<PlayerRoute>()
+                            ) {
+                                ExitTransition.None
+                            } else {
+                                fadeOut(animationSpec = tween(160))
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        composable<LibraryRoute> {
+                            LibraryScreen(
+                                contentPadding = contentPadding,
+                                onOpenMedia = { uri, title ->
+                                    val isNetwork = uri.startsWith("http://", ignoreCase = true) ||
+                                        uri.startsWith("https://", ignoreCase = true) ||
+                                        uri.startsWith("rtsp://", ignoreCase = true)
+                                    openPlayer(uri, title, isNetwork, null)
+                                },
+                                onOpenQueue = { items, startIndex, sourceTitle ->
+                                    openQueue(items, startIndex, sourceTitle, QueueSourceKind.FOLDER)
+                                },
+                            )
+                        }
+                        composable<PlaylistsRoute> {
+                            PlaylistsScreen(
+                                contentPadding = contentPadding,
+                                onOpenQueue = { items, startIndex, sourceTitle ->
+                                    openQueue(items, startIndex, sourceTitle, QueueSourceKind.PLAYLIST)
+                                },
+                            )
+                        }
+                        composable<StreamsRoute> {
+                            StreamsScreen(
+                                contentPadding = contentPadding,
+                                onOpenStream = { request ->
+                                    openPlayer(request.url, request.title, true, request.headersJson)
+                                },
+                            )
+                        }
+                        composable<SettingsRoute> {
+                            SettingsScreen(
+                                contentPadding = contentPadding,
+                            )
+                        }
+                        composable<PlayerRoute>(
+                            enterTransition = { EnterTransition.None },
+                            exitTransition = { ExitTransition.None },
+                            popEnterTransition = { EnterTransition.None },
+                            popExitTransition = { ExitTransition.None },
+                        ) { entry ->
+                            val route = entry.toRoute<PlayerRoute>()
+                            val currentPalette = LocalJupiterPalette.current
+                            val playerPalette = remember(currentPalette) {
+                                currentPalette.copy(
+                                    textPrimary = JupiterColors.TextPrimary,
+                                    textSecondary = JupiterColors.TextSecondary,
+                                )
+                            }
+                            CompositionLocalProvider(
+                                LocalJupiterPalette provides playerPalette,
+                                LocalGlassOverlayHost provides null,
+                            ) {
+                                PlayerScreen(
+                                    mediaUri = route.mediaUri,
+                                    title = route.title,
+                                    isNetworkStream = route.isNetworkStream,
+                                    headersJson = route.headersJson,
+                                    onNavigateBack = {
+                                        if (navController.currentDestination?.hasRoute<PlayerRoute>() == true) {
+                                            navController.popBackStack()
+                                        }
+                                    },
+                                )
+                            }
+                        }
                     }
-                    composable<PlaylistsRoute> {
-                        PlaylistsScreen(
-                            contentPadding = contentPadding,
-                            onOpenQueue = { items, startIndex, sourceTitle ->
-                                openQueue(items, startIndex, sourceTitle, QueueSourceKind.PLAYLIST)
-                            },
-                        )
-                    }
-                    composable<StreamsRoute> {
-                        StreamsScreen(
-                            contentPadding = contentPadding,
-                            onOpenStream = { request ->
-                                openPlayer(request.url, request.title, true, request.headersJson)
-                            },
-                        )
-                    }
-                    composable<SettingsRoute> {
-                        SettingsScreen(
-                            contentPadding = contentPadding,
-                        )
-                    }
-                    composable<PlayerRoute>(
-                        enterTransition = { EnterTransition.None },
-                        exitTransition = { ExitTransition.None },
-                        popEnterTransition = { EnterTransition.None },
-                        popExitTransition = { ExitTransition.None },
-                    ) { entry ->
-                        val route = entry.toRoute<PlayerRoute>()
-                        PlayerScreen(
-                            mediaUri = route.mediaUri,
-                            title = route.title,
-                            isNetworkStream = route.isNetworkStream,
-                            headersJson = route.headersJson,
-                            onNavigateBack = {
-                                if (navController.currentDestination?.hasRoute<PlayerRoute>() == true) {
-                                    navController.popBackStack()
-                                }
-                            },
-                        )
+                }
+
+                if (!isPlayerRoute) {
+                    when (adaptiveInfo.navigationLayout) {
+                        NavigationLayout.BOTTOM_BAR -> {
+                            BottomGlassNavigationBar(
+                                currentDestination = currentDestination,
+                                hazeState = navHazeState,
+                                showNavLabels = showNavLabels,
+                                onSelect = navigateToTopLevel,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .navigationBarsPadding()
+                                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                            )
+                        }
+
+                        NavigationLayout.NAVIGATION_RAIL -> {
+                            SideGlassNavigationRail(
+                                currentDestination = currentDestination,
+                                hazeState = navHazeState,
+                                expanded = false,
+                                showNavLabels = showNavLabels,
+                                onSelect = navigateToTopLevel,
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .fillMaxHeight()
+                                    .statusBarsPadding()
+                                    .navigationBarsPadding()
+                                    .padding(start = 16.dp, top = 16.dp, bottom = 16.dp),
+                            )
+                        }
+
+                        NavigationLayout.PERMANENT_RAIL -> {
+                            SideGlassNavigationRail(
+                                currentDestination = currentDestination,
+                                hazeState = navHazeState,
+                                expanded = true,
+                                showNavLabels = showNavLabels,
+                                onSelect = navigateToTopLevel,
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .fillMaxHeight()
+                                    .statusBarsPadding()
+                                    .navigationBarsPadding()
+                                    .padding(start = 16.dp, top = 16.dp, bottom = 16.dp),
+                            )
+                        }
                     }
                 }
             }
 
-            if (!isPlayerRoute) {
-                when (adaptiveInfo.navigationLayout) {
-                    NavigationLayout.BOTTOM_BAR -> {
-                        BottomGlassNavigationBar(
-                            currentDestination = currentDestination,
-                            hazeState = hazeState,
-                            showNavLabels = showNavLabels,
-                            onSelect = navigateToTopLevel,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding()
-                                .padding(horizontal = 16.dp, vertical = 16.dp),
-                        )
-                    }
-
-                    NavigationLayout.NAVIGATION_RAIL -> {
-                        SideGlassNavigationRail(
-                            currentDestination = currentDestination,
-                            hazeState = hazeState,
-                            expanded = false,
-                            showNavLabels = showNavLabels,
-                            onSelect = navigateToTopLevel,
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .fillMaxHeight()
-                                .statusBarsPadding()
-                                .navigationBarsPadding()
-                                .padding(start = 16.dp, top = 16.dp, bottom = 16.dp),
-                        )
-                    }
-
-                    NavigationLayout.PERMANENT_RAIL -> {
-                        SideGlassNavigationRail(
-                            currentDestination = currentDestination,
-                            hazeState = hazeState,
-                            expanded = true,
-                            showNavLabels = showNavLabels,
-                            onSelect = navigateToTopLevel,
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .fillMaxHeight()
-                                .statusBarsPadding()
-                                .navigationBarsPadding()
-                                .padding(start = 16.dp, top = 16.dp, bottom = 16.dp),
-                        )
-                    }
-                }
-            }
+            GlassOverlayHostLayer(host = glassOverlayHost)
         }
     }
 }

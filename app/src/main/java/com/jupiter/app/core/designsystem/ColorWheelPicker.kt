@@ -167,6 +167,14 @@ val AccentColorPresets: List<ColorPreset> = listOf(
     ColorPreset(label = "Amber", argb = 0xFFE8B86D.toInt()),
 )
 
+val TextColorPresets: List<ColorPreset> = listOf(
+    ColorPreset(label = "Snow", argb = 0xFFF2F5FA.toInt()),
+    ColorPreset(label = "Warm cream", argb = 0xFFE8D2B5.toInt()),
+    ColorPreset(label = "Silver", argb = 0xFFB8C2D1.toInt()),
+    ColorPreset(label = "Ice", argb = 0xFFBAEBF0.toInt()),
+    ColorPreset(label = "Ink", argb = 0xFF111620.toInt()),
+)
+
 @Composable
 fun ColorWheelDialog(
     title: String,

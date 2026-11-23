@@ -37,6 +37,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Cached
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Colorize
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PlayCircle
@@ -94,8 +95,12 @@ import com.jupiter.app.core.designsystem.GlassSurface
 import com.jupiter.app.core.designsystem.JupiterTheme
 import com.jupiter.app.core.designsystem.LocalJupiterPalette
 import com.jupiter.app.core.designsystem.LocalJupiterShapes
+import com.jupiter.app.core.designsystem.TextColorPresets
+import com.jupiter.app.core.designsystem.defaultTextArgbForCanvas
 import com.jupiter.app.data.local.UserPreferences
 import com.jupiter.engine.HwDecMode
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -167,6 +172,7 @@ fun SettingsScreen(
         onPreferredSubtitleLangChange = viewModel::setPreferredSubtitleLang,
         onSelectBackgroundArgb = viewModel::setBackgroundArgb,
         onSelectAccentArgb = viewModel::setAccentArgb,
+        onSelectTextArgb = viewModel::setTextArgb,
         onSelectGlassStyle = viewModel::setGlassStyle,
         onCornerRoundnessChange = viewModel::setCornerRoundnessPercent,
         onShowNavLabelsChange = viewModel::setShowNavLabels,
@@ -204,6 +210,7 @@ internal fun SettingsContent(
     onPreferredSubtitleLangChange: (String) -> Unit,
     onSelectBackgroundArgb: (Int) -> Unit,
     onSelectAccentArgb: (Int) -> Unit,
+    onSelectTextArgb: (Int?) -> Unit,
     onSelectGlassStyle: (GlassStyle) -> Unit,
     onCornerRoundnessChange: (Int) -> Unit,
     onShowNavLabelsChange: (Boolean) -> Unit,
@@ -224,6 +231,7 @@ internal fun SettingsContent(
 
     var showBackgroundWheel by remember { mutableStateOf(false) }
     var showAccentWheel by remember { mutableStateOf(false) }
+    var showTextWheel by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.feedbackMessage) {
         if (uiState.feedbackMessage != null) {
@@ -232,11 +240,15 @@ internal fun SettingsContent(
         }
     }
 
+    val screenHazeState = rememberHazeState()
+
     Box(modifier = modifier.fillMaxSize()) {
         // MainShell passes contentPadding with statusBars, navigationBars, and nav rail/bar clearance.
         LazyVerticalStaggeredGrid(
             columns = columns,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(state = screenHazeState),
             contentPadding = contentPadding,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalItemSpacing = 12.dp,
@@ -287,6 +299,7 @@ internal fun SettingsContent(
                     preferences = prefs,
                     onOpenBackgroundColorPicker = { showBackgroundWheel = true },
                     onOpenAccentColorPicker = { showAccentWheel = true },
+                    onOpenTextColorPicker = { showTextWheel = true },
                     onSelectGlassStyle = onSelectGlassStyle,
                     onCornerRoundnessChange = onCornerRoundnessChange,
                     onShowNavLabelsChange = onShowNavLabelsChange,
@@ -322,7 +335,7 @@ internal fun SettingsContent(
         ) {
             val message = uiState.feedbackMessage.orEmpty()
             GlassPill(
-                hazeState = null,
+                hazeState = screenHazeState,
                 elevated = true,
                 modifier = Modifier.clickable(role = Role.Button, onClick = onDismissFeedback),
             ) {
@@ -372,6 +385,22 @@ internal fun SettingsContent(
             onColorSelected = { argb ->
                 onSelectAccentArgb(argb)
                 showAccentWheel = false
+            },
+        )
+    }
+
+    if (showTextWheel) {
+        val defaultTextArgb = defaultTextArgbForCanvas(prefs.backgroundArgb)
+        ColorWheelDialog(
+            title = "Text color",
+            initialArgb = prefs.textArgb ?: defaultTextArgb,
+            defaultArgb = defaultTextArgb,
+            presets = TextColorPresets,
+            onDismissRequest = { showTextWheel = false },
+            onColorSelected = { argb ->
+                val resolved = if ((argb and 0xFFFFFF) == (defaultTextArgb and 0xFFFFFF)) null else argb
+                onSelectTextArgb(resolved)
+                showTextWheel = false
             },
         )
     }
@@ -574,6 +603,7 @@ private fun AppearanceSettingsCard(
     preferences: UserPreferences,
     onOpenBackgroundColorPicker: () -> Unit,
     onOpenAccentColorPicker: () -> Unit,
+    onOpenTextColorPicker: () -> Unit,
     onSelectGlassStyle: (GlassStyle) -> Unit,
     onCornerRoundnessChange: (Int) -> Unit,
     onShowNavLabelsChange: (Boolean) -> Unit,
@@ -596,6 +626,12 @@ private fun AppearanceSettingsCard(
             label = "Accent",
             colorArgb = preferences.accentArgb,
             onClick = onOpenAccentColorPicker,
+        )
+
+        ColorSwatchPickerRow(
+            label = "Text",
+            colorArgb = preferences.textArgb ?: defaultTextArgbForCanvas(preferences.backgroundArgb),
+            onClick = onOpenTextColorPicker,
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -707,12 +743,11 @@ private fun ColorSwatchPickerRow(
                 )
             }
         }
-        Text(
-            text = "Pick color",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            color = accent,
-            maxLines = 1,
+        Icon(
+            imageVector = Icons.Outlined.Colorize,
+            contentDescription = "Pick $label color",
+            tint = accent,
+            modifier = Modifier.size(18.dp),
         )
     }
 }
@@ -1291,6 +1326,7 @@ private fun SettingsPhonePreview() {
                 onPreferredSubtitleLangChange = {},
                 onSelectBackgroundArgb = {},
                 onSelectAccentArgb = {},
+                onSelectTextArgb = {},
                 onSelectGlassStyle = {},
                 onCornerRoundnessChange = {},
                 onShowNavLabelsChange = {},
@@ -1335,6 +1371,7 @@ private fun SettingsTabletPreview() {
                     onPreferredSubtitleLangChange = {},
                     onSelectBackgroundArgb = {},
                     onSelectAccentArgb = {},
+                    onSelectTextArgb = {},
                     onSelectGlassStyle = {},
                     onCornerRoundnessChange = {},
                     onShowNavLabelsChange = {},

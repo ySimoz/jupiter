@@ -53,10 +53,20 @@ data class JupiterPalette(
     val isLightCanvas: Boolean,
 )
 
-fun deriveJupiterPalette(canvasArgb: Int): JupiterPalette {
+fun defaultTextArgbForCanvas(canvasArgb: Int): Int {
+    val opaqueCanvas = canvasArgb or (0xFF shl 24)
+    return if (ColorWheelMath.isLightColor(opaqueCanvas)) {
+        0xFF111620.toInt()
+    } else {
+        0xFFF2F5FA.toInt()
+    }
+}
+
+fun deriveJupiterPalette(canvasArgb: Int, textArgb: Int? = null): JupiterPalette {
     val opaqueCanvas = canvasArgb or (0xFF shl 24)
     val isLight = ColorWheelMath.isLightColor(opaqueCanvas)
     val luminance = ColorWheelMath.relativeLuminance(opaqueCanvas)
+    val customOpaqueText = textArgb?.let { it or (0xFF shl 24) }
 
     return if (isLight) {
         val glassPrimaryArgb = if (luminance > 0.85) {
@@ -69,12 +79,18 @@ fun deriveJupiterPalette(canvasArgb: Int): JupiterPalette {
         } else {
             ColorWheelMath.blendArgb(opaqueCanvas, 0xFFFFFFFF.toInt(), 0.68f)
         }
+        val textPrimaryColor = Color(customOpaqueText ?: 0xFF111620.toInt())
+        val textSecondaryColor = if (customOpaqueText != null) {
+            Color(ColorWheelMath.blendArgb(customOpaqueText, opaqueCanvas, 0.34f))
+        } else {
+            Color(0xFF4B5565)
+        }
         JupiterPalette(
             canvas = Color(opaqueCanvas),
             glassPrimary = Color(glassPrimaryArgb),
             glassElevated = Color(glassElevatedArgb),
-            textPrimary = Color(0xFF111620),
-            textSecondary = Color(0xFF4B5565),
+            textPrimary = textPrimaryColor,
+            textSecondary = textSecondaryColor,
             borderSubtle = Color(0xFF090C12).copy(alpha = 0.09f),
             borderSpecularTop = Color(0xFF090C12).copy(alpha = 0.18f),
             borderSpecularBottom = Color(0xFF090C12).copy(alpha = 0.07f),
@@ -83,17 +99,23 @@ fun deriveJupiterPalette(canvasArgb: Int): JupiterPalette {
     } else {
         val glassPrimaryArgb = ColorWheelMath.blendArgb(opaqueCanvas, 0xFFFFFFFF.toInt(), 0.06f)
         val glassElevatedArgb = ColorWheelMath.blendArgb(opaqueCanvas, 0xFFFFFFFF.toInt(), 0.12f)
-        val textSecondaryArgb = if (luminance > 0.06) {
+        val defaultTextSecondaryArgb = if (luminance > 0.06) {
             ColorWheelMath.blendArgb(0xFFF2F5FA.toInt(), opaqueCanvas, 0.34f)
         } else {
             0xFF9AA4B2.toInt()
+        }
+        val textPrimaryColor = Color(customOpaqueText ?: 0xFFF2F5FA.toInt())
+        val textSecondaryColor = if (customOpaqueText != null) {
+            Color(ColorWheelMath.blendArgb(customOpaqueText, opaqueCanvas, 0.34f))
+        } else {
+            Color(defaultTextSecondaryArgb)
         }
         JupiterPalette(
             canvas = Color(opaqueCanvas),
             glassPrimary = Color(glassPrimaryArgb),
             glassElevated = Color(glassElevatedArgb),
-            textPrimary = Color(0xFFF2F5FA),
-            textSecondary = Color(textSecondaryArgb),
+            textPrimary = textPrimaryColor,
+            textSecondary = textSecondaryColor,
             borderSubtle = Color.White.copy(alpha = 0.08f),
             borderSpecularTop = Color.White.copy(alpha = 0.26f),
             borderSpecularBottom = Color.White.copy(alpha = 0.06f),
@@ -283,13 +305,14 @@ val LocalGlassStyle = staticCompositionLocalOf { GlassStyle.FROSTED }
 fun JupiterTheme(
     backgroundArgb: Int = 0xFF090C12.toInt(),
     accentArgb: Int = 0xFFE6ECF5.toInt(),
+    textArgb: Int? = null,
     glassStyle: GlassStyle = GlassStyle.FROSTED,
     cornerRoundnessPercent: Int = 50,
     content: @Composable () -> Unit,
 ) {
     val canvasArgb = backgroundArgb or (0xFF shl 24)
     val opaqueAccent = accentArgb or (0xFF shl 24)
-    val palette = remember(canvasArgb) { deriveJupiterPalette(canvasArgb) }
+    val palette = remember(canvasArgb, textArgb) { deriveJupiterPalette(canvasArgb, textArgb) }
     val primary = remember(opaqueAccent) { Color(opaqueAccent) }
     val onPrimary = remember(opaqueAccent) { Color(ColorWheelMath.computeOnColorArgb(opaqueAccent)) }
 

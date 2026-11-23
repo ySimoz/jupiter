@@ -62,6 +62,7 @@ class SettingsRepositoryTest {
         assertTrue(repo.current.showNavLabels)
         assertEquals(0xFF090C12.toInt(), repo.current.backgroundArgb)
         assertEquals(0xFFE6ECF5.toInt(), repo.current.accentArgb)
+        assertEquals(null, repo.current.textArgb)
         assertEquals(GlassStyle.FROSTED, repo.current.glassStyle)
 
         assertEquals(
@@ -171,6 +172,13 @@ class SettingsRepositoryTest {
         assertEquals(0xFF123456.toInt(), repo.current.backgroundArgb)
         repo.setAccentArgb(0x22ABCDEF)
         assertEquals(0xFFABCDEF.toInt(), repo.current.accentArgb)
+
+        assertEquals(null, SettingsValidation.resolveTextArgb(null))
+        assertEquals(0xFFE8D2B5.toInt(), SettingsValidation.resolveTextArgb(0x22E8D2B5))
+        repo.setTextArgb(0x22E8D2B5)
+        assertEquals(0xFFE8D2B5.toInt(), repo.current.textArgb)
+        repo.setTextArgb(null)
+        assertEquals(null, repo.current.textArgb)
     }
 
     @Test

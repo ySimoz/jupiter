@@ -43,6 +43,7 @@ interface SettingsRepository {
     suspend fun setPreferredSubtitleLang(codes: String)
     suspend fun setBackgroundArgb(argb: Int)
     suspend fun setAccentArgb(argb: Int)
+    suspend fun setTextArgb(argb: Int?)
     suspend fun setGlassStyle(style: GlassStyle)
     suspend fun setGestureBrightnessEnabled(enabled: Boolean)
     suspend fun setGestureVolumeEnabled(enabled: Boolean)
@@ -107,6 +108,9 @@ internal object SettingsValidation {
         return legacyHex ?: DEFAULT_ACCENT_ARGB
     }
 
+    fun resolveTextArgb(storedTextArgb: Int?): Int? =
+        storedTextArgb?.let(::normalizeOpaqueArgb)
+
     fun resolveGlassStyle(
         storedGlassStyle: String?,
         legacyGlassBlurEnabled: Boolean?,
@@ -166,6 +170,9 @@ class DataStoreSettingsRepository @Inject constructor(
                 accentArgb = SettingsValidation.resolveAccentArgb(
                     storedAccentArgb = prefs[Keys.CUSTOM_ACCENT_ARGB],
                     legacyAccentStyle = prefs[Keys.ACCENT_STYLE],
+                ),
+                textArgb = SettingsValidation.resolveTextArgb(
+                    prefs[Keys.CUSTOM_TEXT_ARGB],
                 ),
                 glassStyle = SettingsValidation.resolveGlassStyle(
                     storedGlassStyle = prefs[Keys.GLASS_STYLE],
@@ -242,6 +249,16 @@ class DataStoreSettingsRepository @Inject constructor(
             prefs[Keys.CUSTOM_ACCENT_ARGB] = opaque
             prefs.remove(Keys.ACCENT_STYLE)
             prefs.remove(Keys.DYNAMIC_ACCENT_ENABLED)
+        }
+    }
+
+    override suspend fun setTextArgb(argb: Int?) {
+        dataStore.edit { prefs ->
+            if (argb == null) {
+                prefs.remove(Keys.CUSTOM_TEXT_ARGB)
+            } else {
+                prefs[Keys.CUSTOM_TEXT_ARGB] = SettingsValidation.normalizeOpaqueArgb(argb)
+            }
         }
     }
 
@@ -327,6 +344,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val CUSTOM_BACKGROUND_ARGB = intPreferencesKey("custom_background_argb")
         val ACCENT_STYLE = stringPreferencesKey("accent_style")
         val CUSTOM_ACCENT_ARGB = intPreferencesKey("custom_accent_argb")
+        val CUSTOM_TEXT_ARGB = intPreferencesKey("custom_text_argb")
         val DYNAMIC_ACCENT_ENABLED = booleanPreferencesKey("dynamic_accent_enabled")
         val REDUCED_TRANSPARENCY = booleanPreferencesKey("reduced_transparency")
         val GLASS_BLUR_ENABLED = booleanPreferencesKey("glass_blur_enabled")
@@ -404,6 +422,11 @@ class InMemorySettingsRepository(
     override suspend fun setAccentArgb(argb: Int) {
         val opaque = SettingsValidation.normalizeOpaqueArgb(argb)
         _preferences.update { it.copy(accentArgb = opaque) }
+    }
+
+    override suspend fun setTextArgb(argb: Int?) {
+        val normalized = argb?.let(SettingsValidation::normalizeOpaqueArgb)
+        _preferences.update { it.copy(textArgb = normalized) }
     }
 
     override suspend fun setGlassStyle(style: GlassStyle) {

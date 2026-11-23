@@ -17,6 +17,7 @@ data class UserPreferences(
     val preferredSubtitleLang: String = "",
     val backgroundArgb: Int = 0xFF090C12.toInt(),
     val accentArgb: Int = 0xFFE6ECF5.toInt(),
+    val textArgb: Int? = null,
     val glassStyle: GlassStyle = GlassStyle.FROSTED,
     val gestureBrightnessEnabled: Boolean = true,
     val gestureVolumeEnabled: Boolean = true,

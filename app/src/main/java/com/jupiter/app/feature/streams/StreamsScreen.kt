@@ -83,6 +83,9 @@ import com.jupiter.app.data.local.NetworkStreamEntity
 import com.jupiter.app.data.repository.StreamHeaderConfig
 import com.jupiter.app.data.repository.StreamUrlValidator
 import com.jupiter.app.feature.playlists.AddToPlaylistSheet
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.delay
 
 @Composable
@@ -198,10 +201,14 @@ internal fun StreamsContent(
         24.dp
     }
 
+    val screenHazeState = rememberHazeState()
+
     Box(modifier = modifier.fillMaxSize()) {
         LazyVerticalGrid(
             columns = columns,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(state = screenHazeState),
             contentPadding = contentPadding,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -274,6 +281,7 @@ internal fun StreamsContent(
 
         AddStreamFab(
             onClick = onAddStreamClick,
+            hazeState = screenHazeState,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
@@ -296,7 +304,7 @@ internal fun StreamsContent(
         ) {
             val message = uiState.feedbackMessage.orEmpty()
             GlassPill(
-                hazeState = null,
+                hazeState = screenHazeState,
                 elevated = true,
                 modifier = Modifier.clickable(role = Role.Button, onClick = onDismissFeedback),
             ) {
@@ -765,6 +773,7 @@ private fun EmptyStreamsCard(onAddClick: () -> Unit) {
 @Composable
 private fun AddStreamFab(
     onClick: () -> Unit,
+    hazeState: HazeState? = null,
     modifier: Modifier = Modifier,
 ) {
     GlassSurface(
@@ -773,7 +782,7 @@ private fun AddStreamFab(
             .clip(CircleShape)
             .semantics { contentDescription = "Add stream" }
             .clickable(role = Role.Button, onClick = onClick),
-        hazeState = null,
+        hazeState = hazeState,
         shape = CircleShape,
         elevated = true,
     ) {

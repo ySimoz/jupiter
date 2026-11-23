@@ -22,7 +22,9 @@ class ColorWheelMathTest {
             0xFFE8B86D.toInt(),
             0xFF000000.toInt(),
             0xFFFFFFFF.toInt(),
-        ) + BackgroundColorPresets.map { it.argb } + AccentColorPresets.map { it.argb }
+        ) + BackgroundColorPresets.map { it.argb } +
+            AccentColorPresets.map { it.argb } +
+            TextColorPresets.map { it.argb }
         for (argb in samples) {
             val (h, s, v) = ColorWheelMath.argbToHsv(argb)
             val roundTrip = ColorWheelMath.hsvToArgb(h, s, v)
@@ -31,11 +33,13 @@ class ColorWheelMathTest {
     }
 
     @Test
-    fun `background and accent preset lists expose expected curated defaults`() {
+    fun `background, accent, and text preset lists expose expected curated defaults`() {
         assertEquals(5, BackgroundColorPresets.size)
         assertEquals("Obsidian" to 0xFF090C12.toInt(), BackgroundColorPresets[0].label to BackgroundColorPresets[0].argb)
         assertEquals(5, AccentColorPresets.size)
         assertEquals("Monochrome" to 0xFFE6ECF5.toInt(), AccentColorPresets[0].label to AccentColorPresets[0].argb)
+        assertEquals(5, TextColorPresets.size)
+        assertEquals("Snow" to 0xFFF2F5FA.toInt(), TextColorPresets[0].label to TextColorPresets[0].argb)
     }
 
     @Test
@@ -117,5 +121,28 @@ class ColorWheelMathTest {
         assertTrue(white.isLightCanvas)
         assertNotEquals(white.canvas, white.glassPrimary)
         assertNotEquals(white.glassPrimary, white.glassElevated)
+
+        assertEquals(0xFFF2F5FA.toInt(), defaultTextArgbForCanvas(0xFF090C12.toInt()))
+        assertEquals(0xFF111620.toInt(), defaultTextArgbForCanvas(0xFFF4F6FA.toInt()))
+
+        val customDarkText = deriveJupiterPalette(
+            canvasArgb = 0xFF090C12.toInt(),
+            textArgb = 0x33E8D2B5,
+        )
+        assertEquals(Color(0xFFE8D2B5), customDarkText.textPrimary)
+        assertEquals(
+            Color(ColorWheelMath.blendArgb(0xFFE8D2B5.toInt(), 0xFF090C12.toInt(), 0.34f)),
+            customDarkText.textSecondary,
+        )
+
+        val customLightText = deriveJupiterPalette(
+            canvasArgb = 0xFFF4F6FA.toInt(),
+            textArgb = 0xFF1E293B.toInt(),
+        )
+        assertEquals(Color(0xFF1E293B), customLightText.textPrimary)
+        assertEquals(
+            Color(ColorWheelMath.blendArgb(0xFF1E293B.toInt(), 0xFFF4F6FA.toInt(), 0.34f)),
+            customLightText.textSecondary,
+        )
     }
 }

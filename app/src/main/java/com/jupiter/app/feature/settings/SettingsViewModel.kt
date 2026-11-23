@@ -133,6 +133,12 @@ class SettingsViewModel internal constructor(
         }
     }
 
+    fun setTextArgb(argb: Int?) {
+        viewModelScope.launch {
+            settingsRepository.setTextArgb(argb)
+        }
+    }
+
     fun setGlassStyle(style: GlassStyle) {
         viewModelScope.launch {
             settingsRepository.setGlassStyle(style)

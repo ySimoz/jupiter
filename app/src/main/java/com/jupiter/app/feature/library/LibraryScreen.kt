@@ -13,7 +13,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -67,7 +66,6 @@ import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -84,9 +82,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -106,6 +107,7 @@ import coil3.request.crossfade
 import com.jupiter.app.core.adaptive.LocalJupiterAdaptiveInfo
 import com.jupiter.app.core.adaptive.NavigationLayout
 import com.jupiter.app.core.designsystem.GlassAdaptiveSheet
+import com.jupiter.app.core.designsystem.GlassDropdownMenu
 import com.jupiter.app.core.designsystem.GlassIconButton
 import com.jupiter.app.core.designsystem.GlassPill
 import com.jupiter.app.core.designsystem.GlassSurface
@@ -118,6 +120,9 @@ import com.jupiter.app.data.media.LocalFolderSummary
 import com.jupiter.app.data.media.LocalVideoItem
 import com.jupiter.app.feature.player.QueueMediaItem
 import com.jupiter.app.feature.player.TimeFormatters
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import com.jupiter.app.feature.playlists.AddToPlaylistSheet
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -306,10 +311,14 @@ internal fun LibraryContent(
         uiState.visibleVideos.isNotEmpty() ||
         uiState.isLoading
 
+    val screenHazeState = rememberHazeState()
+
     Box(modifier = modifier.fillMaxSize()) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = adaptiveInfo.gridMinColumnDp.dp),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(state = screenHazeState),
             contentPadding = contentPadding,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -447,6 +456,7 @@ internal fun LibraryContent(
 
         OpenFileFab(
             onClick = onOpenFileClick,
+            hazeState = screenHazeState,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
@@ -469,7 +479,7 @@ internal fun LibraryContent(
         ) {
             val message = uiState.feedbackMessage.orEmpty()
             GlassPill(
-                hazeState = null,
+                hazeState = screenHazeState,
                 elevated = true,
                 modifier = Modifier.clickable(role = Role.Button, onClick = onDismissFeedback),
             ) {
@@ -953,9 +963,12 @@ private fun SortDropdownButton(
     onSortOptionChange: (LibrarySortOption) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var anchorBounds by remember { mutableStateOf(Rect.Zero) }
     val shapes = LocalJupiterShapes.current
 
-    Box {
+    Box(
+        modifier = Modifier.onGloballyPositioned { anchorBounds = it.boundsInRoot() },
+    ) {
         GlassSurface(
             modifier = Modifier
                 .height(40.dp)
@@ -994,12 +1007,10 @@ private fun SortDropdownButton(
             }
         }
 
-        DropdownMenu(
+        GlassDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            shape = shapes.menu,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            anchorBounds = anchorBounds,
         ) {
             LibrarySortOption.entries.forEach { option ->
                 val selected = option == sortOption
@@ -1209,7 +1220,10 @@ private fun FolderCard(
                     )
                 }
 
-                Box {
+                var anchorBounds by remember { mutableStateOf(Rect.Zero) }
+                Box(
+                    modifier = Modifier.onGloballyPositioned { anchorBounds = it.boundsInRoot() },
+                ) {
                     Box(
                         modifier = Modifier
                             .size(36.dp)
@@ -1226,12 +1240,10 @@ private fun FolderCard(
                         )
                     }
 
-                    DropdownMenu(
+                    GlassDropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = shapes.menu,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        anchorBounds = anchorBounds,
                     ) {
                         DropdownMenuItem(
                             text = {
@@ -1703,7 +1715,10 @@ private fun VideoCard(
                     }
                 }
 
-                Box {
+                var anchorBounds by remember { mutableStateOf(Rect.Zero) }
+                Box(
+                    modifier = Modifier.onGloballyPositioned { anchorBounds = it.boundsInRoot() },
+                ) {
                     Box(
                         modifier = Modifier
                             .size(36.dp)
@@ -1720,12 +1735,10 @@ private fun VideoCard(
                         )
                     }
 
-                    DropdownMenu(
+                    GlassDropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = shapes.menu,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        anchorBounds = anchorBounds,
                     ) {
                         DropdownMenuItem(
                             text = {
@@ -1787,6 +1800,7 @@ private fun EmptyLibraryCard(message: String) {
 @Composable
 private fun OpenFileFab(
     onClick: () -> Unit,
+    hazeState: HazeState? = null,
     modifier: Modifier = Modifier,
 ) {
     val shape = CircleShape
@@ -1796,7 +1810,7 @@ private fun OpenFileFab(
             .clip(shape)
             .semantics { contentDescription = "Open file" }
             .clickable(role = Role.Button, onClick = onClick),
-        hazeState = null,
+        hazeState = hazeState,
         shape = shape,
         elevated = true,
     ) {

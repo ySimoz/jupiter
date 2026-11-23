@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
             JupiterTheme(
                 backgroundArgb = prefs.backgroundArgb,
                 accentArgb = prefs.accentArgb,
+                textArgb = prefs.textArgb,
                 glassStyle = prefs.glassStyle,
                 cornerRoundnessPercent = prefs.cornerRoundnessPercent,
             ) {
