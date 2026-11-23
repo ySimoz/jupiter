@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ySimoz/jupiter/releases/tag/v0.1.0">Download v0.1.0 Beta APK</a>
+  <a href="https://github.com/ySimoz/jupiter/releases/tag/v0.1.1">Download v0.1.1 Beta APK</a>
   ·
   <a href="#features">Features</a>
   ·
@@ -16,12 +16,12 @@ Native Android media player built on top of **libmpv** and **Jetpack Compose**.
 
 ---
 
-## Quick Start (v0.1.0 Beta)
+## Quick Start (v0.1.1 Beta)
 
-1. Download **`jupiter-v0.1.0-beta.apk`** from the [v0.1.0 GitHub Release](https://github.com/ySimoz/jupiter/releases/tag/v0.1.0).
+1. Download **`jupiter-v0.1.1-beta.apk`** from the [v0.1.1 GitHub Release](https://github.com/ySimoz/jupiter/releases/tag/v0.1.1).
 2. Install on Android 10 or newer (`arm64-v8a`, `armeabi-v7a`, or `x86_64`).
 
-> **Beta signing note:** `v0.1.0` is an early beta release. As configured in [`app/build.gradle.kts`](app/build.gradle.kts), the current release build signs with the local debug keystore.
+> **Beta signing note:** `v0.1.1` is an early beta release. As configured in [`app/build.gradle.kts`](app/build.gradle.kts), the current release build signs with the local debug keystore.
 
 ---
 
@@ -47,7 +47,7 @@ Native Android media player built on top of **libmpv** and **Jetpack Compose**.
 
 ### Adaptive Glass UI
 - **Responsive layout:** Bottom glass bar on phones and glass navigation rail on tablets (`material3-window-size-class`).
-- **Customization:** `Solid`, `Frosted`, and `Clear` glass styles (Haze), background & accent color wheel pickers, adjustable corner roundness, and optional navigation labels.
+- **Customization:** `Solid`, `Frosted`, and `Clear` glass styles (Haze), background/accent/text color wheel pickers, adjustable corner roundness, and optional navigation labels.
 
 ---
 
