@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -6,6 +8,25 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
 }
+
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.isFile) {
+        keystorePropsFile.inputStream().use(::load)
+    }
+}
+val releaseStorePath = System.getenv("JUPITER_KEYSTORE_PATH")
+    ?: keystoreProps.getProperty("storeFile")
+val releaseStorePassword = System.getenv("JUPITER_KEYSTORE_PASSWORD")
+    ?: keystoreProps.getProperty("storePassword")
+val releaseKeyAlias = System.getenv("JUPITER_KEY_ALIAS")
+    ?: keystoreProps.getProperty("keyAlias")
+val releaseKeyPassword = System.getenv("JUPITER_KEY_PASSWORD")
+    ?: keystoreProps.getProperty("keyPassword")
+val hasReleaseSigning = !releaseStorePath.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
 
 android {
     namespace = "com.jupiter.app"
@@ -25,12 +46,30 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                val resolvedFile = file(releaseStorePath!!)
+                require(resolvedFile.isFile) {
+                    "Configured release keystore not found at ${resolvedFile.absolutePath}"
+                }
+                storeFile = resolvedFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            // shortcut: uses debug keystore for local release verification; swap to release keystore env vars before Play Store publish
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
