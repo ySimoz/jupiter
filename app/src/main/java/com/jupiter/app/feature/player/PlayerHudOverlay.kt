@@ -42,12 +42,15 @@ import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material.icons.outlined.Replay10
 import androidx.compose.material.icons.outlined.ScreenLockLandscape
 import androidx.compose.material.icons.outlined.ScreenLockPortrait
+import androidx.compose.material.icons.outlined.NetworkCheck
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.ScreenRotation
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.WifiOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -285,7 +288,35 @@ fun PlayerHudOverlay(
         }
 
         AnimatedVisibility(
-            visible = !uiState.isLocked && uiState.statusMessage != null,
+            visible = !uiState.isLocked && uiState.connectionAlert != null && uiState.errorMessage == null,
+            enter = fadeIn(tween(180)),
+            exit = fadeOut(tween(180)),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .systemBarsPadding()
+                .padding(
+                    top = if (uiState.abLoop.isActive) 112.dp else 72.dp,
+                    start = 16.dp,
+                    end = 16.dp,
+                ),
+        ) {
+            uiState.connectionAlert?.let { alert ->
+                val alertIcon = when (alert) {
+                    ConnectionAlert.OFFLINE -> Icons.Outlined.WifiOff
+                    ConnectionAlert.RECONNECTING -> Icons.Outlined.Refresh
+                    ConnectionAlert.SLOW_CONNECTION -> Icons.Outlined.NetworkCheck
+                }
+                HudGlassChip(
+                    icon = alertIcon,
+                    label = alert.message,
+                    onClick = if (alert == ConnectionAlert.RECONNECTING) ({}) else onRetry,
+                    elevated = true,
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = !uiState.isLocked && uiState.statusMessage != null && uiState.connectionAlert == null,
             enter = fadeIn(tween(180)),
             exit = fadeOut(tween(180)),
             modifier = Modifier

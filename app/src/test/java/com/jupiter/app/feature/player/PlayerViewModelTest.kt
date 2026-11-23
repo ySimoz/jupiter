@@ -15,6 +15,7 @@ import com.jupiter.app.data.repository.MediaRepository
 import com.jupiter.app.data.repository.ResumeRules
 import com.jupiter.app.data.repository.StreamHeaderConfig
 import com.jupiter.app.service.AudioFocusController
+import com.jupiter.app.service.NetworkConnectivityMonitor
 import com.jupiter.app.service.PlaybackServiceLauncher
 import com.jupiter.engine.AudioTrack
 import com.jupiter.engine.Chapter
@@ -1769,6 +1770,7 @@ class PlayerViewModelTest {
         val attachedSurfaces = mutableListOf<Surface>()
         val surfaceSizeCalls = mutableListOf<Pair<Int, Int>>()
         var detachSurfaceCount = 0
+        var loadFileCount = 0
         var lastLoadedUri: String? = null
         var lastLoadOptions: List<String> = emptyList()
         var lastSeekToMs: Long? = null
@@ -1828,6 +1830,7 @@ class PlayerViewModelTest {
         }
 
         override fun loadFile(uriOrFd: String, options: List<String>): Int {
+            loadFileCount++
             lastLoadedUri = uriOrFd
             lastLoadOptions = options
             return 0
@@ -1969,5 +1972,139 @@ class PlayerViewModelTest {
             lastVolumePercent = percent
             return 0
         }
+    }
+
+    private class FakeNetworkConnectivityMonitor(
+        initialConnected: Boolean = true,
+    ) : NetworkConnectivityMonitor {
+        private val connectedFlow = MutableStateFlow(initialConnected)
+        override val isConnected: Flow<Boolean> = connectedFlow.asStateFlow()
+
+        override fun isCurrentlyConnected(): Boolean = connectedFlow.value
+
+        fun setConnected(connected: Boolean) {
+            connectedFlow.value = connected
+        }
+    }
+
+    @Test
+    fun `network stream shows offline alert on disconnect and auto-reloads when connectivity returns`() = runTest {
+        val networkMonitor = FakeNetworkConnectivityMonitor(initialConnected = true)
+        val vm = PlayerViewModel(
+            playbackController = fakeController,
+            configDir = "/tmp/jupiter-mpv-net",
+            networkConnectivityMonitor = networkMonitor,
+            persistenceDispatcher = testDispatcher,
+        )
+
+        vm.loadMedia(
+            uri = "https://cdn.example.com/live/stream.m3u8",
+            title = "Live Stream",
+            isNetworkStream = true,
+        )
+        runCurrent()
+        assertEquals(1, fakeController.loadFileCount)
+        assertNull(vm.uiState.value.connectionAlert)
+
+        fakeController.emitEvent(MpvEvent.FileLoaded)
+        runCurrent()
+
+        networkMonitor.setConnected(false)
+        runCurrent()
+        assertEquals(ConnectionAlert.OFFLINE, vm.uiState.value.connectionAlert)
+
+        fakeController.emitEvent(MpvEvent.EndFile(MpvNative.END_FILE_REASON_ERROR, -13))
+        runCurrent()
+        assertEquals(ConnectionAlert.OFFLINE, vm.uiState.value.connectionAlert)
+        assertTrue(vm.uiState.value.errorMessage.orEmpty().contains("No internet connection"))
+
+        networkMonitor.setConnected(true)
+        runCurrent()
+        assertEquals(2, fakeController.loadFileCount)
+        assertNull(vm.uiState.value.errorMessage)
+        assertEquals(ConnectionAlert.RECONNECTING, vm.uiState.value.connectionAlert)
+
+        fakeController.emitEvent(MpvEvent.FileLoaded)
+        runCurrent()
+        assertNull(vm.uiState.value.connectionAlert)
+        vm.prepareForExit()
+    }
+
+    @Test
+    fun `prolonged buffering on network stream shows slow connection alert and clears when resumed`() = runTest {
+        viewModel.loadMedia(
+            uri = "https://cdn.example.com/movie.m3u8",
+            title = "Movie",
+            isNetworkStream = true,
+        )
+        runCurrent()
+
+        fakeController.emitState { it.copy(isBuffering = true, isPaused = false, bufferingPercent = 35) }
+        runCurrent()
+        advanceTimeBy(9_999L)
+        runCurrent()
+        assertNull(viewModel.uiState.value.connectionAlert)
+
+        advanceTimeBy(1L)
+        runCurrent()
+        assertEquals(ConnectionAlert.SLOW_CONNECTION, viewModel.uiState.value.connectionAlert)
+
+        fakeController.emitState { it.copy(isBuffering = false, bufferingPercent = 100) }
+        runCurrent()
+        assertNull(viewModel.uiState.value.connectionAlert)
+
+        // Local file buffering never raises slow-connection alert.
+        viewModel.loadMedia(uri = "file:///local.mkv", title = "Local", isNetworkStream = false)
+        runCurrent()
+        fakeController.emitState { it.copy(isBuffering = true, isPaused = false) }
+        advanceTimeBy(15_000L)
+        runCurrent()
+        assertNull(viewModel.uiState.value.connectionAlert)
+        viewModel.prepareForExit()
+    }
+
+    @Test
+    fun `transient stream error auto-retries twice with backoff then surfaces plain error`() = runTest {
+        viewModel.loadMedia(
+            uri = "https://cdn.example.com/vod/ep1.m3u8",
+            title = "Episode 1",
+            isNetworkStream = true,
+        )
+        runCurrent()
+        fakeController.emitEvent(MpvEvent.FileLoaded)
+        runCurrent()
+        assertEquals(1, fakeController.loadFileCount)
+
+        // First transient drop -> auto-reconnect after 2s
+        fakeController.emitEvent(MpvEvent.EndFile(MpvNative.END_FILE_REASON_ERROR, -13))
+        runCurrent()
+        assertEquals(ConnectionAlert.RECONNECTING, viewModel.uiState.value.connectionAlert)
+        assertNull(viewModel.uiState.value.errorMessage)
+        advanceTimeBy(2_000L)
+        runCurrent()
+        assertEquals(2, fakeController.loadFileCount)
+
+        // Fail immediately before FileLoaded -> surfaces plain error instead of infinite loop
+        fakeController.emitEvent(MpvEvent.EndFile(MpvNative.END_FILE_REASON_ERROR, -13))
+        runCurrent()
+        assertNull(viewModel.uiState.value.connectionAlert)
+        assertTrue(viewModel.uiState.value.errorMessage.orEmpty().contains("Unable to connect to stream"))
+        viewModel.prepareForExit()
+    }
+
+    @Test
+    fun `formatPlaybackErrorMessage translates network errors and preserves local errors`() {
+        assertTrue(
+            formatPlaybackErrorMessage(-13, null, isNetworkStream = true, isConnected = false)
+                .contains("No internet connection"),
+        )
+        assertTrue(
+            formatPlaybackErrorMessage(-13, "mpv playback error (-13)", isNetworkStream = true, isConnected = true)
+                .contains("Unable to connect to stream"),
+        )
+        assertEquals(
+            "Playback failed (error -13)",
+            formatPlaybackErrorMessage(-13, null, isNetworkStream = false, isConnected = true),
+        )
     }
 }

@@ -19,7 +19,9 @@ import com.jupiter.app.data.repository.MediaRepository
 import com.jupiter.app.data.repository.SettingsRepository
 import com.jupiter.app.data.repository.StreamHeaderConfig
 import com.jupiter.app.data.repository.VideoBookmarkRepository
+import com.jupiter.app.service.AlwaysConnectedNetworkMonitor
 import com.jupiter.app.service.AudioFocusController
+import com.jupiter.app.service.NetworkConnectivityMonitor
 import com.jupiter.app.service.PlaybackServiceLauncher
 import com.jupiter.engine.AudioTrack
 import com.jupiter.engine.Chapter
@@ -59,6 +61,7 @@ class PlayerViewModel @Inject constructor(
     private val playbackQueueManager: PlaybackQueueManager,
     private val videoBookmarkRepository: VideoBookmarkRepository,
     private val frameCaptureManager: FrameCaptureManager,
+    private val networkConnectivityMonitor: NetworkConnectivityMonitor,
 ) : ViewModel() {
 
     private var persistenceDispatcher: CoroutineDispatcher = Dispatchers.IO
@@ -74,6 +77,7 @@ class PlayerViewModel @Inject constructor(
         playbackQueueManager: PlaybackQueueManager = PlaybackQueueManager(),
         videoBookmarkRepository: VideoBookmarkRepository = InMemoryVideoBookmarkRepository(),
         frameCaptureManager: FrameCaptureManager = NoOpFrameCaptureManager,
+        networkConnectivityMonitor: NetworkConnectivityMonitor = AlwaysConnectedNetworkMonitor,
         persistenceDispatcher: CoroutineDispatcher = Dispatchers.IO,
     ) : this(
         playbackController = playbackController,
@@ -86,6 +90,7 @@ class PlayerViewModel @Inject constructor(
         playbackQueueManager = playbackQueueManager,
         videoBookmarkRepository = videoBookmarkRepository,
         frameCaptureManager = frameCaptureManager,
+        networkConnectivityMonitor = networkConnectivityMonitor,
     ) {
         this.persistenceDispatcher = persistenceDispatcher
     }
@@ -106,6 +111,8 @@ class PlayerViewModel @Inject constructor(
     private var bookmarkObserveJob: Job? = null
     private var upNextJob: Job? = null
     private var statusMessageJob: Job? = null
+    private var slowBufferingJob: Job? = null
+    private var autoReconnectJob: Job? = null
 
     private var lastDoubleTapSide: DoubleTapSide? = null
     private var accumulatedDoubleTapSeconds: Int = 0
@@ -115,6 +122,10 @@ class PlayerViewModel @Inject constructor(
     private var hasAudioFocus: Boolean = false
     private var lastAudioTracks: List<AudioTrack>? = null
     private var lastSubtitleTracks: List<SubtitleTrack>? = null
+    private var isNetworkConnected: Boolean = networkConnectivityMonitor.isCurrentlyConnected()
+    private var pendingReconnectOnNetworkRestore: Boolean = false
+    private var autoReconnectAttempts: Int = 0
+    private var lastRawMpvError: String? = null
 
     private var currentMediaUri: String? = null
     private var currentDisplayName: String = ""
@@ -137,6 +148,12 @@ class PlayerViewModel @Inject constructor(
     private var pendingSurfaceHeight: Int = 0
 
     init {
+        viewModelScope.launch {
+            networkConnectivityMonitor.isConnected.collect { connected ->
+                handleNetworkConnectivityChange(connected)
+            }
+        }
+
         viewModelScope.launch {
             settingsRepository.preferences.collect { prefs ->
                 val resumeChanged = prefs.rememberResumePosition != latestPrefs.rememberResumePosition
@@ -252,6 +269,10 @@ class PlayerViewModel @Inject constructor(
                 }
 
                 syncProgressSaveLoop()
+                syncSlowBufferingWatch(
+                    isBuffering = playback.isBuffering,
+                    isPaused = playback.isPaused,
+                )
 
                 if (pausedChanged) {
                     if (playback.isPaused) {
@@ -275,26 +296,101 @@ class PlayerViewModel @Inject constructor(
                 when (event) {
                     is MpvEvent.FileLoaded -> {
                         hasLoadedCurrentMedia = true
+                        autoReconnectAttempts = 0
+                        pendingReconnectOnNetworkRestore = false
+                        lastRawMpvError = null
+                        _uiState.update { current ->
+                            val clearedAlert = when (current.connectionAlert) {
+                                ConnectionAlert.RECONNECTING,
+                                ConnectionAlert.SLOW_CONNECTION,
+                                -> null
+                                ConnectionAlert.OFFLINE, null -> current.connectionAlert
+                            }
+                            current.copy(connectionAlert = clearedAlert)
+                        }
                     }
 
                     is MpvEvent.Error -> {
-                        _uiState.update { it.copy(errorMessage = event.message) }
+                        lastRawMpvError = event.message
+                        if (currentIsNetworkStream &&
+                            hasLoadedCurrentMedia &&
+                            isNetworkConnected &&
+                            autoReconnectAttempts < MAX_AUTO_RECONNECT_ATTEMPTS
+                        ) {
+                            // Wait for EndFile to trigger silent auto-reconnect before surfacing error dialog.
+                        } else {
+                            val formatted = formatPlaybackErrorMessage(
+                                errorCode = event.errorCode,
+                                rawMessage = event.message,
+                                isNetworkStream = currentIsNetworkStream,
+                                isConnected = isNetworkConnected,
+                            )
+                            _uiState.update { it.copy(errorMessage = formatted) }
+                        }
                     }
 
                     is MpvEvent.EndFile -> {
                         if (event.isError) {
                             progressSaveJob?.cancel()
                             progressSaveJob = null
+                            slowBufferingJob?.cancel()
+                            slowBufferingJob = null
                             abandonAudioFocus()
-                            _uiState.update { current ->
-                                val msg = current.errorMessage
-                                    ?: "Playback failed (error ${event.errorCode})"
-                                current.copy(errorMessage = msg)
+
+                            if (currentIsNetworkStream && !hasExitedCurrentSession) {
+                                if (hasLoadedCurrentMedia && _uiState.value.durationMs > 0L) {
+                                    launchImmediateProgressSave()
+                                }
+                                if (!isNetworkConnected) {
+                                    pendingReconnectOnNetworkRestore = true
+                                    val offlineMessage = formatPlaybackErrorMessage(
+                                        errorCode = event.errorCode,
+                                        rawMessage = lastRawMpvError,
+                                        isNetworkStream = true,
+                                        isConnected = false,
+                                    )
+                                    _uiState.update {
+                                        it.copy(
+                                            connectionAlert = ConnectionAlert.OFFLINE,
+                                            errorMessage = offlineMessage,
+                                        )
+                                    }
+                                } else if (hasLoadedCurrentMedia &&
+                                    autoReconnectAttempts < MAX_AUTO_RECONNECT_ATTEMPTS
+                                ) {
+                                    scheduleAutoReconnect()
+                                } else {
+                                    val formatted = formatPlaybackErrorMessage(
+                                        errorCode = event.errorCode,
+                                        rawMessage = lastRawMpvError ?: _uiState.value.errorMessage,
+                                        isNetworkStream = true,
+                                        isConnected = true,
+                                    )
+                                    _uiState.update {
+                                        it.copy(
+                                            connectionAlert = null,
+                                            errorMessage = formatted,
+                                        )
+                                    }
+                                }
+                            } else {
+                                _uiState.update { current ->
+                                    val msg = current.errorMessage
+                                        ?: formatPlaybackErrorMessage(
+                                            errorCode = event.errorCode,
+                                            rawMessage = lastRawMpvError,
+                                            isNetworkStream = false,
+                                            isConnected = isNetworkConnected,
+                                        )
+                                    current.copy(errorMessage = msg)
+                                }
                             }
                         } else if (event.isEof && hasLoadedCurrentMedia) {
                             hasEndedWithEof = true
                             progressSaveJob?.cancel()
                             progressSaveJob = null
+                            slowBufferingJob?.cancel()
+                            slowBufferingJob = null
                             abandonAudioFocus()
                             val duration = _uiState.value.durationMs
                             if (duration > 0L) {
@@ -338,7 +434,30 @@ class PlayerViewModel @Inject constructor(
         isNetworkStream: Boolean = false,
         headersJson: String? = null,
     ) {
+        autoReconnectAttempts = 0
+        pendingReconnectOnNetworkRestore = false
+        loadMediaInternal(
+            uri = uri,
+            title = title,
+            isNetworkStream = isNetworkStream,
+            headersJson = headersJson,
+            preserveReconnectAlert = false,
+        )
+    }
+
+    private fun loadMediaInternal(
+        uri: String,
+        title: String,
+        isNetworkStream: Boolean,
+        headersJson: String?,
+        preserveReconnectAlert: Boolean,
+    ) {
         cancelUpNext()
+        slowBufferingJob?.cancel()
+        slowBufferingJob = null
+        autoReconnectJob?.cancel()
+        autoReconnectJob = null
+        lastRawMpvError = null
         lastUri = uri
         lastTitle = title
         lastIsNetworkStream = isNetworkStream
@@ -364,6 +483,27 @@ class PlayerViewModel @Inject constructor(
                 saveCurrentProgress()
             }
 
+            if (isNetworkStream && !isNetworkConnected) {
+                currentMediaUri = uri
+                currentDisplayName = title.ifBlank { extractTitleFromUri(uri) }
+                currentIsNetworkStream = true
+                pendingReconnectOnNetworkRestore = true
+                _uiState.update {
+                    it.copy(
+                        title = currentDisplayName,
+                        errorMessage = formatPlaybackErrorMessage(
+                            errorCode = -13,
+                            rawMessage = null,
+                            isNetworkStream = true,
+                            isConnected = false,
+                        ),
+                        connectionAlert = ConnectionAlert.OFFLINE,
+                        isPaused = true,
+                    )
+                }
+                return@launch
+            }
+
             if (!ensureInitializedOffMain()) return@launch
 
             val resolved = withContext(persistenceDispatcher) {
@@ -379,6 +519,7 @@ class PlayerViewModel @Inject constructor(
                     it.copy(
                         title = title.ifBlank { extractTitleFromUri(uri) },
                         errorMessage = resolved.exceptionOrNull()?.message ?: "Unable to open media",
+                        connectionAlert = null,
                         isPaused = true,
                         bookmarks = emptyList(),
                     )
@@ -413,6 +554,7 @@ class PlayerViewModel @Inject constructor(
                     title = resolvedTitle,
                     durationMs = if (previousUri != null) 0L else it.durationMs,
                     errorMessage = null,
+                    connectionAlert = if (preserveReconnectAlert) ConnectionAlert.RECONNECTING else null,
                     isPaused = false,
                     abLoop = AbLoopState(),
                     secondarySubtitleTrackId = null,
@@ -449,7 +591,17 @@ class PlayerViewModel @Inject constructor(
 
             val rc = playbackController.loadFile(source.mpvPath, loadOptions)
             if (rc < 0) {
-                _uiState.update { it.copy(errorMessage = "Failed to load media ($rc)") }
+                _uiState.update {
+                    it.copy(
+                        connectionAlert = null,
+                        errorMessage = formatPlaybackErrorMessage(
+                            errorCode = rc,
+                            rawMessage = if (isNetworkStream) null else "Failed to load media ($rc)",
+                            isNetworkStream = isNetworkStream,
+                            isConnected = isNetworkConnected,
+                        ),
+                    )
+                }
             } else if (requestAudioFocus(force = true)) {
                 playbackController.play()
                 playbackServiceLauncher.startOrUpdate()
@@ -463,12 +615,15 @@ class PlayerViewModel @Inject constructor(
 
     fun retryLoad() {
         val uri = lastUri ?: return
+        autoReconnectAttempts = 0
+        pendingReconnectOnNetworkRestore = false
         _uiState.update { it.copy(errorMessage = null) }
-        loadMedia(
+        loadMediaInternal(
             uri = uri,
             title = lastTitle,
             isNetworkStream = lastIsNetworkStream,
             headersJson = lastHeadersJson,
+            preserveReconnectAlert = false,
         )
     }
 
@@ -1196,6 +1351,11 @@ class PlayerViewModel @Inject constructor(
         cancelUpNext()
         statusMessageJob?.cancel()
         statusMessageJob = null
+        slowBufferingJob?.cancel()
+        slowBufferingJob = null
+        autoReconnectJob?.cancel()
+        autoReconnectJob = null
+        pendingReconnectOnNetworkRestore = false
         bookmarkObserveJob?.cancel()
         bookmarkObserveJob = null
         loadMediaJob?.cancel()
@@ -1261,6 +1421,116 @@ class PlayerViewModel @Inject constructor(
             }
             _uiState.update { it.copy(upNextItem = null, upNextCountdownSec = 0) }
             playNextNow()
+        }
+    }
+
+    private fun handleNetworkConnectivityChange(connected: Boolean) {
+        val wasConnected = isNetworkConnected
+        isNetworkConnected = connected
+        if (!currentIsNetworkStream || hasExitedCurrentSession) return
+
+        if (!connected) {
+            slowBufferingJob?.cancel()
+            slowBufferingJob = null
+            autoReconnectJob?.cancel()
+            autoReconnectJob = null
+            _uiState.update { it.copy(connectionAlert = ConnectionAlert.OFFLINE) }
+        } else if (!wasConnected || pendingReconnectOnNetworkRestore) {
+            if (pendingReconnectOnNetworkRestore && lastUri != null) {
+                pendingReconnectOnNetworkRestore = false
+                autoReconnectAttempts = 0
+                val uri = lastUri ?: return
+                _uiState.update {
+                    it.copy(
+                        errorMessage = null,
+                        connectionAlert = ConnectionAlert.RECONNECTING,
+                    )
+                }
+                loadMediaInternal(
+                    uri = uri,
+                    title = lastTitle,
+                    isNetworkStream = lastIsNetworkStream,
+                    headersJson = lastHeadersJson,
+                    preserveReconnectAlert = true,
+                )
+            } else {
+                _uiState.update { current ->
+                    if (current.connectionAlert == ConnectionAlert.OFFLINE) {
+                        current.copy(connectionAlert = null)
+                    } else {
+                        current
+                    }
+                }
+            }
+        }
+    }
+
+    private fun syncSlowBufferingWatch(
+        isBuffering: Boolean,
+        isPaused: Boolean,
+    ) {
+        if (currentIsNetworkStream && isBuffering && !isPaused && isNetworkConnected && !hasExitedCurrentSession) {
+            if (slowBufferingJob?.isActive != true) {
+                slowBufferingJob = viewModelScope.launch {
+                    delay(SLOW_BUFFERING_THRESHOLD_MS)
+                    if (currentIsNetworkStream &&
+                        isNetworkConnected &&
+                        !hasExitedCurrentSession &&
+                        _uiState.value.isBuffering &&
+                        !_uiState.value.isPaused
+                    ) {
+                        _uiState.update { current ->
+                            if (current.connectionAlert == null) {
+                                current.copy(connectionAlert = ConnectionAlert.SLOW_CONNECTION)
+                            } else {
+                                current
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            slowBufferingJob?.cancel()
+            slowBufferingJob = null
+            if (!isBuffering) {
+                _uiState.update { current ->
+                    when (current.connectionAlert) {
+                        ConnectionAlert.SLOW_CONNECTION,
+                        ConnectionAlert.RECONNECTING,
+                        -> current.copy(connectionAlert = null)
+                        ConnectionAlert.OFFLINE, null -> current
+                    }
+                }
+            }
+        }
+    }
+
+    private fun scheduleAutoReconnect() {
+        val uri = lastUri ?: return
+        autoReconnectAttempts++
+        val delayMs = AUTO_RECONNECT_BASE_DELAY_MS * autoReconnectAttempts
+        autoReconnectJob?.cancel()
+        _uiState.update {
+            it.copy(
+                errorMessage = null,
+                connectionAlert = ConnectionAlert.RECONNECTING,
+            )
+        }
+        autoReconnectJob = viewModelScope.launch {
+            delay(delayMs)
+            if (hasExitedCurrentSession || !currentIsNetworkStream) return@launch
+            if (!isNetworkConnected) {
+                pendingReconnectOnNetworkRestore = true
+                _uiState.update { it.copy(connectionAlert = ConnectionAlert.OFFLINE) }
+                return@launch
+            }
+            loadMediaInternal(
+                uri = uri,
+                title = lastTitle,
+                isNetworkStream = lastIsNetworkStream,
+                headersJson = lastHeadersJson,
+                preserveReconnectAlert = true,
+            )
         }
     }
 
@@ -1533,6 +1803,9 @@ class PlayerViewModel @Inject constructor(
         private const val ZOOM_OVERLAY_TIMEOUT_MS = 900L
         private const val UNLOCK_HINT_TIMEOUT_MS = 2_000L
         private const val STATUS_MESSAGE_TIMEOUT_MS = 2_500L
+        private const val SLOW_BUFFERING_THRESHOLD_MS = 10_000L
+        private const val AUTO_RECONNECT_BASE_DELAY_MS = 2_000L
+        private const val MAX_AUTO_RECONNECT_ATTEMPTS = 2
         private const val UP_NEXT_COUNTDOWN_SECONDS = 5
         private const val DOUBLE_TAP_STEP_SECONDS = 10
         private const val PIP_SEEK_SECONDS = 10

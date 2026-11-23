@@ -71,6 +71,12 @@ data class AbLoopState(
         get() = pointAMs != null
 }
 
+enum class ConnectionAlert(val message: String) {
+    OFFLINE("No internet connection"),
+    RECONNECTING("Reconnecting stream"),
+    SLOW_CONNECTION("Slow connection — buffering"),
+}
+
 data class PlayerUiState(
     val title: String = "",
     val isHudVisible: Boolean = true,
@@ -120,6 +126,7 @@ data class PlayerUiState(
     val upNextCountdownSec: Int = 0,
     val isCapturingFrame: Boolean = false,
     val statusMessage: String? = null,
+    val connectionAlert: ConnectionAlert? = null,
 ) {
     val hasQueue: Boolean
         get() = queueItems.size > 1
@@ -129,6 +136,28 @@ data class PlayerUiState(
 
     val hasPreviousInQueue: Boolean
         get() = queueIndex > 0 && queueIndex < queueItems.size
+}
+
+internal fun formatPlaybackErrorMessage(
+    errorCode: Int,
+    rawMessage: String?,
+    isNetworkStream: Boolean,
+    isConnected: Boolean,
+): String {
+    if (isNetworkStream && !isConnected) {
+        return "No internet connection. Playback will resume automatically when you're back online."
+    }
+    val trimmedRaw = rawMessage?.trim().orEmpty()
+    val isGenericMpvMessage = trimmedRaw.isEmpty() ||
+        trimmedRaw.startsWith("mpv playback error (", ignoreCase = true)
+    if (isNetworkStream) {
+        if (!isGenericMpvMessage) return trimmedRaw
+        return when (errorCode) {
+            -13 -> "Unable to connect to stream. Check your connection or stream URL."
+            else -> "Stream interrupted (error $errorCode). Check your connection and retry."
+        }
+    }
+    return trimmedRaw.ifEmpty { "Playback failed (error $errorCode)" }
 }
 
 object TimeFormatters {

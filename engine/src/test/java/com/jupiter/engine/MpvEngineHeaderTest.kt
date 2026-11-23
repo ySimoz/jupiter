@@ -6,11 +6,16 @@ import org.junit.Test
 class MpvEngineHeaderTest {
 
     @Test
-    fun `default stream options enable cache and disable ytdl`() {
+    fun `default stream options enable cache, reconnect, timeout, and disable ytdl`() {
         assertEquals("yes", MpvEngine.DEFAULT_STREAM_OPTIONS["cache"])
         assertEquals("128MiB", MpvEngine.DEFAULT_STREAM_OPTIONS["demuxer-max-bytes"])
         assertEquals("32MiB", MpvEngine.DEFAULT_STREAM_OPTIONS["demuxer-max-back-bytes"])
         assertEquals("no", MpvEngine.DEFAULT_STREAM_OPTIONS["ytdl"])
+        assertEquals("15", MpvEngine.DEFAULT_STREAM_OPTIONS["network-timeout"])
+        assertEquals(
+            "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=5",
+            MpvEngine.DEFAULT_STREAM_OPTIONS["stream-lavf-o"],
+        )
     }
 
     @Test

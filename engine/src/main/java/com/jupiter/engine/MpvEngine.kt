@@ -383,6 +383,8 @@ class MpvEngine {
             "demuxer-max-bytes" to "128MiB",
             "demuxer-max-back-bytes" to "32MiB",
             "ytdl" to "no",
+            "network-timeout" to "15",
+            "stream-lavf-o" to "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=5",
         )
 
         internal val DEFAULT_SUBTITLE_OPTIONS: Map<String, String> = linkedMapOf(

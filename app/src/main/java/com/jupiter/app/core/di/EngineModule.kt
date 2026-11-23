@@ -5,8 +5,10 @@ import android.view.Surface
 import com.jupiter.app.feature.player.AndroidFrameCaptureManager
 import com.jupiter.app.feature.player.FrameCaptureManager
 import com.jupiter.app.service.AndroidAudioFocusController
+import com.jupiter.app.service.AndroidNetworkConnectivityMonitor
 import com.jupiter.app.service.AndroidPlaybackServiceLauncher
 import com.jupiter.app.service.AudioFocusController
+import com.jupiter.app.service.NetworkConnectivityMonitor
 import com.jupiter.app.service.PlaybackServiceLauncher
 import com.jupiter.engine.HwDecMode
 import com.jupiter.engine.MpvEngine
@@ -186,6 +188,12 @@ object EngineModule {
     fun provideAudioFocusController(
         @ApplicationContext context: Context,
     ): AudioFocusController = AndroidAudioFocusController(context)
+
+    @Provides
+    @Singleton
+    fun provideNetworkConnectivityMonitor(
+        @ApplicationContext context: Context,
+    ): NetworkConnectivityMonitor = AndroidNetworkConnectivityMonitor(context)
 
     @Provides
     @Singleton

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ySimoz/jupiter/releases/tag/v0.1.1">Download v0.1.1 Beta APK</a>
+  <a href="https://github.com/ySimoz/jupiter/releases/tag/v0.1.2">Download v0.1.2 Beta APK</a>
   ·
   <a href="#features">Features</a>
   ·
@@ -16,9 +16,9 @@ Native Android media player built on top of **libmpv** and **Jetpack Compose**.
 
 ---
 
-## Quick Start (v0.1.1 Beta)
+## Quick Start (v0.1.2 Beta)
 
-1. Download **`jupiter-v0.1.1-beta.apk`** from the [v0.1.1 GitHub Release](https://github.com/ySimoz/jupiter/releases/tag/v0.1.1).
+1. Download **`jupiter-v0.1.2-beta.apk`** from the [v0.1.2 GitHub Release](https://github.com/ySimoz/jupiter/releases/tag/v0.1.2).
 2. Install on Android 10 or newer (`arm64-v8a`, `armeabi-v7a`, or `x86_64`).
 
 > **Signing note:** Official `v0.1.1+` APKs are signed with the Jupiter release certificate (`SHA-256: 37d49ebe581b714cf9903d8a9766fb9247b3c432fe8cb6eedc4d38954dad8268`). If upgrading from the earlier debug-signed `v0.1.0` build, uninstall `v0.1.0` first. Source builds without a configured `keystore.properties` or `JUPITER_KEYSTORE_*` env vars fall back to the local debug keystore.
@@ -43,7 +43,7 @@ Native Android media player built on top of **libmpv** and **Jetpack Compose**.
 ### Library, Playlists & Network Streams
 - **Local media:** `MediaStore` folder/video scanner, Storage Access Framework (SAF) file and folder picker, Continue Watching resume state, and external `ACTION_VIEW` intent handling.
 - **Playlists & queue:** Create playlists, reorder/play queues, and toggle auto-play next with an Up Next countdown.
-- **Network streams:** Play `HTTP`, `HTTPS`, `HLS` (`.m3u8`), `DASH` (`.mpd`), and `RTSP` URLs with custom HTTP headers and saved stream bookmarks.
+- **Network streams:** Play `HTTP`, `HTTPS`, `HLS` (`.m3u8`), `DASH` (`.mpd`), and `RTSP` URLs with custom HTTP headers, saved stream bookmarks, automatic FFmpeg reconnect, and offline/slow-connection alerts.
 
 ### Adaptive Glass UI
 - **Responsive layout:** Bottom glass bar on phones and glass navigation rail on tablets (`material3-window-size-class`).
