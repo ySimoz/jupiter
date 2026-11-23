@@ -21,7 +21,7 @@ Native Android media player built on top of **libmpv** and **Jetpack Compose**.
 1. Download **`jupiter-v0.1.1-beta.apk`** from the [v0.1.1 GitHub Release](https://github.com/ySimoz/jupiter/releases/tag/v0.1.1).
 2. Install on Android 10 or newer (`arm64-v8a`, `armeabi-v7a`, or `x86_64`).
 
-> **Beta signing note:** `v0.1.1` is an early beta release. As configured in [`app/build.gradle.kts`](app/build.gradle.kts), the current release build signs with the local debug keystore.
+> **Signing note:** Official `v0.1.1+` APKs are signed with the Jupiter release certificate (`SHA-256: 37d49ebe581b714cf9903d8a9766fb9247b3c432fe8cb6eedc4d38954dad8268`). If upgrading from the earlier debug-signed `v0.1.0` build, uninstall `v0.1.0` first. Source builds without a configured `keystore.properties` or `JUPITER_KEYSTORE_*` env vars fall back to the local debug keystore.
 
 ---
 
