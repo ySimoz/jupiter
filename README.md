@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="Jupiter — Native Android media player powered by libmpv (C/JNI) and Jetpack Compose">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Jupiter — Native Android media player built on top of libmpv and Jetpack Compose">
 </p>
 
 <p align="center">

@@ -2,7 +2,6 @@ package com.jupiter.app.core.shell
 
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Spring
@@ -11,6 +10,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +49,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +65,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInParent
@@ -436,18 +439,27 @@ private class NavBubbleState(
     val itemBounds: SnapshotStateMap<TopLevelDestination, Rect>,
     val left: Animatable<Float, AnimationVector1D>,
     val top: Animatable<Float, AnimationVector1D>,
-    val width: Animatable<Float, AnimationVector1D>,
-    val height: Animatable<Float, AnimationVector1D>,
+    val right: Animatable<Float, AnimationVector1D>,
+    val bottom: Animatable<Float, AnimationVector1D>,
 ) {
     var lastAnimatedDestination: TopLevelDestination? = null
 
     val isAnimating: Boolean
-        get() = left.isRunning || top.isRunning || width.isRunning || height.isRunning
+        get() = left.isRunning || top.isRunning || right.isRunning || bottom.isRunning
+
+    fun primaryVelocity(axis: NavBubbleAxis): Float {
+        if (!isAnimating) return 0f
+        return when (axis) {
+            NavBubbleAxis.HORIZONTAL -> (left.velocity + right.velocity) / 2f
+            NavBubbleAxis.VERTICAL -> (top.velocity + bottom.velocity) / 2f
+        }
+    }
 }
 
 @Composable
 private fun rememberNavBubbleState(
     selectedDestination: TopLevelDestination?,
+    axis: NavBubbleAxis,
     layoutKey: Any = Unit,
 ): NavBubbleState {
     val state = remember(layoutKey) {
@@ -455,14 +467,14 @@ private fun rememberNavBubbleState(
             itemBounds = mutableStateMapOf(),
             left = Animatable(0f),
             top = Animatable(0f),
-            width = Animatable(0f),
-            height = Animatable(0f),
+            right = Animatable(0f),
+            bottom = Animatable(0f),
         )
     }
 
     val targetBounds = selectedDestination?.let { state.itemBounds[it] }
 
-    LaunchedEffect(state, selectedDestination, targetBounds) {
+    LaunchedEffect(state, selectedDestination, targetBounds, axis) {
         if (selectedDestination == null || targetBounds == null) return@LaunchedEffect
         val isInitialOrSameDestination =
             state.lastAnimatedDestination == null || state.lastAnimatedDestination == selectedDestination
@@ -471,18 +483,45 @@ private fun rememberNavBubbleState(
         if (isInitialOrSameDestination) {
             state.left.snapTo(targetBounds.left)
             state.top.snapTo(targetBounds.top)
-            state.width.snapTo(targetBounds.width)
-            state.height.snapTo(targetBounds.height)
+            state.right.snapTo(targetBounds.right)
+            state.bottom.snapTo(targetBounds.bottom)
         } else {
-            val bubbleSpring = spring<Float>(
-                dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = 380f,
+            val currentRect = Rect(
+                left = state.left.value,
+                top = state.top.value,
+                right = state.right.value,
+                bottom = state.bottom.value,
+            )
+            val edgeStiffness = selectEdgeStiffness(
+                from = currentRect,
+                to = targetBounds,
+                axis = axis,
             )
             coroutineScope {
-                launch { state.left.animateTo(targetBounds.left, bubbleSpring) }
-                launch { state.top.animateTo(targetBounds.top, bubbleSpring) }
-                launch { state.width.animateTo(targetBounds.width, bubbleSpring) }
-                launch { state.height.animateTo(targetBounds.height, bubbleSpring) }
+                launch {
+                    state.left.animateTo(
+                        targetBounds.left,
+                        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = edgeStiffness.left),
+                    )
+                }
+                launch {
+                    state.top.animateTo(
+                        targetBounds.top,
+                        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = edgeStiffness.top),
+                    )
+                }
+                launch {
+                    state.right.animateTo(
+                        targetBounds.right,
+                        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = edgeStiffness.right),
+                    )
+                }
+                launch {
+                    state.bottom.animateTo(
+                        targetBounds.bottom,
+                        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = edgeStiffness.bottom),
+                    )
+                }
             }
         }
     }
@@ -491,21 +530,26 @@ private fun rememberNavBubbleState(
 }
 
 private fun DrawScope.drawNavGlassBubble(
-    left: Float,
-    top: Float,
-    width: Float,
-    height: Float,
+    frame: MorphingBubbleFrame,
+    axis: NavBubbleAxis,
     cornerShape: CornerBasedShape,
     glassStyle: GlassStyle,
     palette: JupiterPalette,
     accentColor: Color,
 ) {
+    val left = frame.rect.left
+    val top = frame.rect.top
+    val width = frame.rect.width
+    val height = frame.rect.height
     if (width <= 0f || height <= 0f) return
 
+    val energy = frame.motionEnergy
+    val dir = frame.travelDirection
     val bubbleSize = Size(width, height)
     val topLeft = Offset(left, top)
-    val radius = cornerShape.topStart.toPx(bubbleSize, this)
-        .coerceIn(0f, minOf(width, height) / 2f)
+    val maxRadius = minOf(width, height) / 2f
+    val baseRadius = cornerShape.topStart.toPx(bubbleSize, this).coerceIn(0f, maxRadius)
+    val radius = baseRadius + (maxRadius - baseRadius) * (energy * 0.35f)
     val cornerRadius = CornerRadius(radius, radius)
 
     val strokeWidth = 1.dp.toPx()
@@ -518,16 +562,40 @@ private fun DrawScope.drawNavGlassBubble(
     val borderRadius = (radius - halfStroke).coerceAtLeast(0f)
     val borderCornerRadius = CornerRadius(borderRadius, borderRadius)
 
+    val drawDirectionalSheen: (Float) -> Unit = { maxAlpha ->
+        if (energy > 0.01f) {
+            val centerStop = (0.5f + 0.25f * dir).coerceIn(0.15f, 0.85f)
+            val gradientStart = topLeft
+            val gradientEnd = when (axis) {
+                NavBubbleAxis.HORIZONTAL -> Offset(left + width, top)
+                NavBubbleAxis.VERTICAL -> Offset(left, top + height)
+            }
+            val sweepBrush = Brush.linearGradient(
+                0.0f to Color.Transparent,
+                centerStop to Color.White.copy(alpha = maxAlpha * energy),
+                1.0f to Color.Transparent,
+                start = gradientStart,
+                end = gradientEnd,
+            )
+            drawRoundRect(
+                brush = sweepBrush,
+                topLeft = topLeft,
+                size = bubbleSize,
+                cornerRadius = cornerRadius,
+            )
+        }
+    }
+
     when (glassStyle) {
         GlassStyle.SOLID -> {
             drawRoundRect(
-                color = accentColor.copy(alpha = 0.18f),
+                color = accentColor.copy(alpha = 0.18f + 0.04f * energy),
                 topLeft = topLeft,
                 size = bubbleSize,
                 cornerRadius = cornerRadius,
             )
             drawRoundRect(
-                color = accentColor.copy(alpha = 0.32f),
+                color = accentColor.copy(alpha = 0.32f + 0.10f * energy),
                 topLeft = borderTopLeft,
                 size = borderSize,
                 cornerRadius = borderCornerRadius,
@@ -537,14 +605,14 @@ private fun DrawScope.drawNavGlassBubble(
 
         GlassStyle.FROSTED -> {
             drawRoundRect(
-                color = accentColor.copy(alpha = 0.18f),
+                color = accentColor.copy(alpha = 0.18f + 0.04f * energy),
                 topLeft = topLeft,
                 size = bubbleSize,
                 cornerRadius = cornerRadius,
             )
             val sheenBrush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = if (palette.isLightCanvas) 0.36f else 0.18f),
+                    Color.White.copy(alpha = (if (palette.isLightCanvas) 0.36f else 0.18f) + 0.06f * energy),
                     Color.White.copy(alpha = 0.02f),
                 ),
                 startY = top,
@@ -556,15 +624,16 @@ private fun DrawScope.drawNavGlassBubble(
                 size = bubbleSize,
                 cornerRadius = cornerRadius,
             )
+            drawDirectionalSheen(if (palette.isLightCanvas) 0.24f else 0.16f)
             val borderBrush = Brush.verticalGradient(
                 colors = if (palette.isLightCanvas) {
                     listOf(
-                        Color.White.copy(alpha = 0.52f),
+                        Color.White.copy(alpha = 0.52f + 0.14f * energy),
                         accentColor.copy(alpha = 0.24f),
                     )
                 } else {
                     listOf(
-                        Color.White.copy(alpha = 0.28f),
+                        Color.White.copy(alpha = 0.28f + 0.14f * energy),
                         Color.White.copy(alpha = 0.08f),
                     )
                 },
@@ -582,13 +651,13 @@ private fun DrawScope.drawNavGlassBubble(
 
         GlassStyle.CLEAR -> {
             drawRoundRect(
-                color = accentColor.copy(alpha = 0.14f),
+                color = accentColor.copy(alpha = 0.14f + 0.04f * energy),
                 topLeft = topLeft,
                 size = bubbleSize,
                 cornerRadius = cornerRadius,
             )
             val glintBrush = Brush.verticalGradient(
-                0.0f to Color.White.copy(alpha = if (palette.isLightCanvas) 0.52f else 0.30f),
+                0.0f to Color.White.copy(alpha = (if (palette.isLightCanvas) 0.52f else 0.30f) + 0.08f * energy),
                 0.28f to Color.White.copy(alpha = if (palette.isLightCanvas) 0.04f else 0.03f),
                 0.55f to Color.Transparent,
                 1.0f to Color.Transparent,
@@ -601,15 +670,16 @@ private fun DrawScope.drawNavGlassBubble(
                 size = bubbleSize,
                 cornerRadius = cornerRadius,
             )
+            drawDirectionalSheen(if (palette.isLightCanvas) 0.30f else 0.22f)
             val borderBrush = Brush.verticalGradient(
                 colors = if (palette.isLightCanvas) {
                     listOf(
-                        Color.White.copy(alpha = 0.78f),
+                        Color.White.copy(alpha = 0.78f + 0.12f * energy),
                         Color(0xFF090C12).copy(alpha = 0.16f),
                     )
                 } else {
                     listOf(
-                        Color.White.copy(alpha = 0.48f),
+                        Color.White.copy(alpha = 0.48f + 0.16f * energy),
                         Color.White.copy(alpha = 0.12f),
                     )
                 },
@@ -634,10 +704,10 @@ private fun NavBubbleState.resolveDrawBounds(selectedDestination: TopLevelDestin
         return targetBounds
     }
     return Rect(
-        left = left.value,
-        top = top.value,
-        right = left.value + width.value,
-        bottom = top.value + height.value,
+        left = minOf(left.value, right.value),
+        top = minOf(top.value, bottom.value),
+        right = maxOf(left.value, right.value),
+        bottom = maxOf(top.value, bottom.value),
     )
 }
 
@@ -656,8 +726,21 @@ private fun BottomGlassNavigationBar(
     val selectedDestination = TopLevelDestination.entries.firstOrNull {
         currentDestination.isDestinationSelected(it)
     }
+    var optimisticDestination by remember { mutableStateOf<TopLevelDestination?>(null) }
+    LaunchedEffect(selectedDestination) {
+        if (selectedDestination != null) {
+            optimisticDestination = null
+        }
+    }
+    val activeDestination = optimisticDestination ?: selectedDestination
+    val handleSelect: (TopLevelDestination) -> Unit = { dest ->
+        optimisticDestination = if (dest == selectedDestination) null else dest
+        onSelect(dest.route)
+    }
+    val axis = NavBubbleAxis.HORIZONTAL
     val bubbleState = rememberNavBubbleState(
-        selectedDestination = selectedDestination,
+        selectedDestination = activeDestination,
+        axis = axis,
         layoutKey = showNavLabels,
     )
 
@@ -671,12 +754,18 @@ private fun BottomGlassNavigationBar(
             modifier = Modifier
                 .padding(horizontal = 8.dp, vertical = 8.dp)
                 .drawBehind {
-                    val bounds = bubbleState.resolveDrawBounds(selectedDestination) ?: return@drawBehind
+                    val rawBounds = bubbleState.resolveDrawBounds(activeDestination) ?: return@drawBehind
+                    val restBounds = activeDestination?.let { bubbleState.itemBounds[it] } ?: rawBounds
+                    val frame = computeMorphingBubbleFrame(
+                        rawRect = rawBounds,
+                        restPrimarySize = restBounds.width,
+                        axis = axis,
+                        velocityPxPerSec = bubbleState.primaryVelocity(axis),
+                        density = density,
+                    )
                     drawNavGlassBubble(
-                        left = bounds.left,
-                        top = bounds.top,
-                        width = bounds.width,
-                        height = bounds.height,
+                        frame = frame,
+                        axis = axis,
                         cornerShape = shapes.control,
                         glassStyle = glassStyle,
                         palette = palette,
@@ -689,18 +778,19 @@ private fun BottomGlassNavigationBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TopLevelDestination.entries.forEach { destination ->
-                    val isSelected = destination == selectedDestination
+                    val isSelected = destination == activeDestination
                     val itemShape = shapes.control
-                    val iconTint by animateColorAsState(
-                        targetValue = if (isSelected) accentColor else palette.textSecondary,
-                        animationSpec = tween(durationMillis = 180),
-                        label = "bottomNavIconTint_${destination.name}",
-                    )
-                    val labelColor by animateColorAsState(
-                        targetValue = if (isSelected) palette.textPrimary else palette.textSecondary,
-                        animationSpec = tween(durationMillis = 180),
-                        label = "bottomNavLabelColor_${destination.name}",
-                    )
+                    val liveBubbleRect = bubbleState.resolveDrawBounds(activeDestination)
+                    val itemRect = bubbleState.itemBounds[destination]
+                    val highlightFraction = if (liveBubbleRect != null && itemRect != null) {
+                        computeTabOverlapFraction(liveBubbleRect, itemRect)
+                    } else if (isSelected) {
+                        1f
+                    } else {
+                        0f
+                    }
+                    val iconTint = lerp(palette.textSecondary, accentColor, highlightFraction)
+                    val labelColor = lerp(palette.textSecondary, palette.textPrimary, highlightFraction)
                     val boundsModifier = Modifier.onPlaced { coords ->
                         val pos = coords.positionInParent()
                         val rect = Rect(
@@ -729,11 +819,12 @@ private fun BottomGlassNavigationBar(
                             isSelected = isSelected,
                             iconTint = iconTint,
                             itemShape = itemShape,
-                            onSelect = onSelect,
+                            onClick = { handleSelect(destination) },
                             modifier = itemSizeModifier,
                             iconSize = if (!showNavLabels) 24.dp else 18.dp,
                         )
                     } else {
+                        val interactionSource = remember { MutableInteractionSource() }
                         Column(
                             modifier = boundsModifier
                                 .height(52.dp)
@@ -744,8 +835,10 @@ private fun BottomGlassNavigationBar(
                                     contentDescription = destination.label
                                 }
                                 .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null,
                                     role = Role.Tab,
-                                    onClick = { onSelect(destination.route) },
+                                    onClick = { handleSelect(destination) },
                                 )
                                 .padding(horizontal = 10.dp),
                             verticalArrangement = Arrangement.Center,
@@ -791,8 +884,21 @@ private fun SideGlassNavigationRail(
     val selectedDestination = TopLevelDestination.entries.firstOrNull {
         currentDestination.isDestinationSelected(it)
     }
+    var optimisticDestination by remember { mutableStateOf<TopLevelDestination?>(null) }
+    LaunchedEffect(selectedDestination) {
+        if (selectedDestination != null) {
+            optimisticDestination = null
+        }
+    }
+    val activeDestination = optimisticDestination ?: selectedDestination
+    val handleSelect: (TopLevelDestination) -> Unit = { dest ->
+        optimisticDestination = if (dest == selectedDestination) null else dest
+        onSelect(dest.route)
+    }
+    val axis = NavBubbleAxis.VERTICAL
     val bubbleState = rememberNavBubbleState(
-        selectedDestination = selectedDestination,
+        selectedDestination = activeDestination,
+        axis = axis,
         layoutKey = expanded to showNavLabels,
     )
 
@@ -807,12 +913,18 @@ private fun SideGlassNavigationRail(
                 .fillMaxSize()
                 .padding(horizontal = 12.dp, vertical = 20.dp)
                 .drawBehind {
-                    val bounds = bubbleState.resolveDrawBounds(selectedDestination) ?: return@drawBehind
+                    val rawBounds = bubbleState.resolveDrawBounds(activeDestination) ?: return@drawBehind
+                    val restBounds = activeDestination?.let { bubbleState.itemBounds[it] } ?: rawBounds
+                    val frame = computeMorphingBubbleFrame(
+                        rawRect = rawBounds,
+                        restPrimarySize = restBounds.height,
+                        axis = axis,
+                        velocityPxPerSec = bubbleState.primaryVelocity(axis),
+                        density = density,
+                    )
                     drawNavGlassBubble(
-                        left = bounds.left,
-                        top = bounds.top,
-                        width = bounds.width,
-                        height = bounds.height,
+                        frame = frame,
+                        axis = axis,
                         cornerShape = shapes.control,
                         glassStyle = glassStyle,
                         palette = palette,
@@ -838,18 +950,19 @@ private fun SideGlassNavigationRail(
                 }
 
                 TopLevelDestination.entries.forEach { destination ->
-                    val isSelected = destination == selectedDestination
+                    val isSelected = destination == activeDestination
                     val itemShape = shapes.control
-                    val iconTint by animateColorAsState(
-                        targetValue = if (isSelected) accentColor else palette.textSecondary,
-                        animationSpec = tween(durationMillis = 180),
-                        label = "railNavIconTint_${destination.name}",
-                    )
-                    val labelColor by animateColorAsState(
-                        targetValue = if (isSelected) palette.textPrimary else palette.textSecondary,
-                        animationSpec = tween(durationMillis = 180),
-                        label = "railNavLabelColor_${destination.name}",
-                    )
+                    val liveBubbleRect = bubbleState.resolveDrawBounds(activeDestination)
+                    val itemRect = bubbleState.itemBounds[destination]
+                    val highlightFraction = if (liveBubbleRect != null && itemRect != null) {
+                        computeTabOverlapFraction(liveBubbleRect, itemRect)
+                    } else if (isSelected) {
+                        1f
+                    } else {
+                        0f
+                    }
+                    val iconTint = lerp(palette.textSecondary, accentColor, highlightFraction)
+                    val labelColor = lerp(palette.textSecondary, palette.textPrimary, highlightFraction)
                     val boundsModifier = Modifier.onPlaced { coords ->
                         val pos = coords.positionInParent()
                         val rect = Rect(
@@ -864,6 +977,7 @@ private fun SideGlassNavigationRail(
                     }
 
                     if (expanded) {
+                        val interactionSource = remember { MutableInteractionSource() }
                         Row(
                             modifier = boundsModifier
                                 .fillMaxWidth()
@@ -874,8 +988,10 @@ private fun SideGlassNavigationRail(
                                     contentDescription = destination.label
                                 }
                                 .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null,
                                     role = Role.Tab,
-                                    onClick = { onSelect(destination.route) },
+                                    onClick = { handleSelect(destination) },
                                 )
                                 .padding(horizontal = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -902,13 +1018,14 @@ private fun SideGlassNavigationRail(
                             isSelected = isSelected,
                             iconTint = iconTint,
                             itemShape = itemShape,
-                            onSelect = onSelect,
+                            onClick = { handleSelect(destination) },
                             modifier = boundsModifier
                                 .width(56.dp)
                                 .height(52.dp),
                             iconSize = 24.dp,
                         )
                     } else {
+                        val interactionSource = remember { MutableInteractionSource() }
                         Column(
                             modifier = boundsModifier
                                 .width(56.dp)
@@ -919,8 +1036,10 @@ private fun SideGlassNavigationRail(
                                     contentDescription = destination.label
                                 }
                                 .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null,
                                     role = Role.Tab,
-                                    onClick = { onSelect(destination.route) },
+                                    onClick = { handleSelect(destination) },
                                 ),
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -954,10 +1073,11 @@ private fun NavIconOnlyButton(
     isSelected: Boolean,
     iconTint: Color,
     itemShape: CornerBasedShape,
-    onSelect: (Any) -> Unit,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
     iconSize: Dp = 18.dp,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .clip(itemShape)
@@ -966,8 +1086,10 @@ private fun NavIconOnlyButton(
                 contentDescription = destination.label
             }
             .clickable(
+                interactionSource = interactionSource,
+                indication = null,
                 role = Role.Tab,
-                onClick = { onSelect(destination.route) },
+                onClick = onClick,
             ),
         contentAlignment = Alignment.Center,
     ) {
