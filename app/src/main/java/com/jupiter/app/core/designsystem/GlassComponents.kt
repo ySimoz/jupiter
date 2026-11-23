@@ -91,9 +91,10 @@ import kotlin.math.roundToInt
 
 internal class GlassOverlayEntry(
     val id: Long,
-    initialContent: @Composable () -> Unit,
+    val slotKey: String? = null,
+    initialContent: @Composable BoxScope.() -> Unit,
 ) {
-    var content: @Composable () -> Unit by mutableStateOf(initialContent)
+    var content: @Composable BoxScope.() -> Unit by mutableStateOf(initialContent)
 }
 
 class GlassOverlayHostState(
@@ -101,6 +102,9 @@ class GlassOverlayHostState(
 ) {
     private var nextEntryId = 1L
     internal val entries: SnapshotStateList<GlassOverlayEntry> = mutableStateListOf()
+
+    val hasEntries: Boolean
+        get() = entries.isNotEmpty()
 
     internal fun nextId(): Long = nextEntryId++
 
@@ -116,6 +120,7 @@ class GlassOverlayHostState(
 }
 
 val LocalGlassOverlayHost = staticCompositionLocalOf<GlassOverlayHostState?> { null }
+val LocalChromeOverlayHost = staticCompositionLocalOf<GlassOverlayHostState?> { null }
 
 @Composable
 fun GlassOverlayHostLayer(
@@ -123,10 +128,23 @@ fun GlassOverlayHostLayer(
     modifier: Modifier = Modifier,
 ) {
     if (host.entries.isEmpty()) return
-    Box(modifier = modifier.fillMaxSize()) {
+    // When multiple entries share a slotKey (e.g. FAB during tab crossfade), show only the newest.
+    val visibleEntries = buildList(host.entries.size) {
+        val lastSlotEntryId = HashMap<String, Long>()
         host.entries.forEach { entry ->
+            entry.slotKey?.let { key -> lastSlotEntryId[key] = entry.id }
+        }
+        host.entries.forEach { entry ->
+            val key = entry.slotKey
+            if (key == null || lastSlotEntryId[key] == entry.id) {
+                add(entry)
+            }
+        }
+    }
+    Box(modifier = modifier.fillMaxSize()) {
+        visibleEntries.forEach { entry ->
             key(entry.id) {
-                entry.content()
+                entry.content(this)
             }
         }
     }
@@ -135,15 +153,31 @@ fun GlassOverlayHostLayer(
 @Composable
 internal fun GlassOverlayPortal(
     host: GlassOverlayHostState,
-    content: @Composable () -> Unit,
+    slotKey: String? = null,
+    content: @Composable BoxScope.() -> Unit,
 ) {
-    val entry = remember(host) {
-        GlassOverlayEntry(id = host.nextId(), initialContent = content)
+    val entry = remember(host, slotKey) {
+        GlassOverlayEntry(id = host.nextId(), slotKey = slotKey, initialContent = content)
     }
     entry.content = content
     DisposableEffect(host, entry) {
         host.add(entry)
         onDispose { host.remove(entry) }
+    }
+}
+
+@Composable
+fun BoxScope.GlassFloatingPortal(
+    slotKey: String? = null,
+    content: @Composable BoxScope.(hazeState: HazeState?) -> Unit,
+) {
+    val chromeHost = LocalChromeOverlayHost.current
+    if (chromeHost == null) {
+        content(null)
+    } else {
+        GlassOverlayPortal(host = chromeHost, slotKey = slotKey) {
+            content(chromeHost.hazeState)
+        }
     }
 }
 
@@ -238,7 +272,7 @@ fun GlassSurface(
                             style = HazeStyle(
                                 backgroundColor = palette.canvas,
                                 tints = listOf(HazeTint(baseColor.copy(alpha = liveTintAlpha))),
-                                blurRadius = 28.dp,
+                                blurRadius = 18.dp,
                                 fallbackTint = HazeTint(baseColor.copy(alpha = fallbackAlpha)),
                             ),
                         )
@@ -253,11 +287,11 @@ fun GlassSurface(
                 }
 
                 else -> {
-                    // GlassStyle.CLEAR: crystal-clear transparent pane without blur.
+                    // GlassStyle.CLEAR: crisp translucent pane without blur.
                     val clearAlpha = when {
-                        hazeState != null -> if (elevated) 0.28f else 0.22f
-                        elevated -> 0.34f
-                        else -> 0.26f
+                        hazeState != null -> if (elevated) 0.48f else 0.42f
+                        elevated -> 0.54f
+                        else -> 0.46f
                     }
                     Modifier
                         .background(baseColor.copy(alpha = clearAlpha), shape)
@@ -359,15 +393,15 @@ fun GlassIconButton(
 
         GlassStyle.CLEAR -> if (hazeState != null) {
             when {
-                !enabled -> palette.glassPrimary.copy(alpha = 0.18f)
-                selected -> lerp(palette.glassPrimary, accentColor, 0.22f).copy(alpha = 0.34f)
-                else -> palette.glassPrimary.copy(alpha = 0.22f)
+                !enabled -> palette.glassPrimary.copy(alpha = 0.38f)
+                selected -> lerp(palette.glassPrimary, accentColor, 0.22f).copy(alpha = 0.54f)
+                else -> palette.glassPrimary.copy(alpha = 0.42f)
             }
         } else {
             when {
-                !enabled -> palette.glassPrimary.copy(alpha = 0.20f)
-                selected -> lerp(palette.glassPrimary, accentColor, 0.22f).copy(alpha = 0.36f)
-                else -> palette.glassPrimary.copy(alpha = 0.26f)
+                !enabled -> palette.glassPrimary.copy(alpha = 0.40f)
+                selected -> lerp(palette.glassPrimary, accentColor, 0.22f).copy(alpha = 0.56f)
+                else -> palette.glassPrimary.copy(alpha = 0.46f)
             }
         }
     }
@@ -413,7 +447,7 @@ fun GlassIconButton(
                             style = HazeStyle(
                                 backgroundColor = palette.canvas,
                                 tints = listOf(HazeTint(backgroundColor)),
-                                blurRadius = 28.dp,
+                                blurRadius = 18.dp,
                                 fallbackTint = HazeTint(palette.glassPrimary.copy(alpha = 0.78f)),
                             ),
                         )

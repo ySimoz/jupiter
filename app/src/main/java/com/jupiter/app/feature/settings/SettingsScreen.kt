@@ -89,6 +89,7 @@ import com.jupiter.app.core.designsystem.BackgroundColorPresets
 import com.jupiter.app.core.designsystem.ColorWheelDialog
 import com.jupiter.app.core.designsystem.ColorWheelMath
 import com.jupiter.app.core.designsystem.GlassDialog
+import com.jupiter.app.core.designsystem.GlassFloatingPortal
 import com.jupiter.app.core.designsystem.GlassPill
 import com.jupiter.app.core.designsystem.GlassStyle
 import com.jupiter.app.core.designsystem.GlassSurface
@@ -99,8 +100,6 @@ import com.jupiter.app.core.designsystem.TextColorPresets
 import com.jupiter.app.core.designsystem.defaultTextArgbForCanvas
 import com.jupiter.app.data.local.UserPreferences
 import com.jupiter.engine.HwDecMode
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -240,15 +239,11 @@ internal fun SettingsContent(
         }
     }
 
-    val screenHazeState = rememberHazeState()
-
     Box(modifier = modifier.fillMaxSize()) {
         // MainShell passes contentPadding with statusBars, navigationBars, and nav rail/bar clearance.
         LazyVerticalStaggeredGrid(
             columns = columns,
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(state = screenHazeState),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = contentPadding,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalItemSpacing = 12.dp,
@@ -324,38 +319,40 @@ internal fun SettingsContent(
         } else {
             20.dp
         }
-        AnimatedVisibility(
-            visible = uiState.feedbackMessage != null,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = bannerBottomPadding),
-        ) {
-            val message = uiState.feedbackMessage.orEmpty()
-            GlassPill(
-                hazeState = screenHazeState,
-                elevated = true,
-                modifier = Modifier.clickable(role = Role.Button, onClick = onDismissFeedback),
+        GlassFloatingPortal(slotKey = "feedback") { toastHazeState ->
+            AnimatedVisibility(
+                visible = uiState.feedbackMessage != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = bannerBottomPadding),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                val message = uiState.feedbackMessage.orEmpty()
+                GlassPill(
+                    hazeState = toastHazeState,
+                    elevated = true,
+                    modifier = Modifier.clickable(role = Role.Button, onClick = onDismissFeedback),
                 ) {
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = palette.textPrimary,
-                    )
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = "Dismiss",
-                        tint = palette.textSecondary,
-                        modifier = Modifier.size(18.dp),
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = palette.textPrimary,
+                        )
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Dismiss",
+                            tint = palette.textSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
             }
         }

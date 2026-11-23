@@ -108,6 +108,7 @@ import com.jupiter.app.core.adaptive.LocalJupiterAdaptiveInfo
 import com.jupiter.app.core.adaptive.NavigationLayout
 import com.jupiter.app.core.designsystem.GlassAdaptiveSheet
 import com.jupiter.app.core.designsystem.GlassDropdownMenu
+import com.jupiter.app.core.designsystem.GlassFloatingPortal
 import com.jupiter.app.core.designsystem.GlassIconButton
 import com.jupiter.app.core.designsystem.GlassPill
 import com.jupiter.app.core.designsystem.GlassSurface
@@ -121,8 +122,6 @@ import com.jupiter.app.data.media.LocalVideoItem
 import com.jupiter.app.feature.player.QueueMediaItem
 import com.jupiter.app.feature.player.TimeFormatters
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
 import com.jupiter.app.feature.playlists.AddToPlaylistSheet
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -311,14 +310,10 @@ internal fun LibraryContent(
         uiState.visibleVideos.isNotEmpty() ||
         uiState.isLoading
 
-    val screenHazeState = rememberHazeState()
-
     Box(modifier = modifier.fillMaxSize()) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = adaptiveInfo.gridMinColumnDp.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(state = screenHazeState),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = contentPadding,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -454,52 +449,56 @@ internal fun LibraryContent(
             }
         }
 
-        OpenFileFab(
-            onClick = onOpenFileClick,
-            hazeState = screenHazeState,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(end = fabEndPadding, bottom = fabBottomPadding),
-        )
+        GlassFloatingPortal(slotKey = "fab") { fabHazeState ->
+            OpenFileFab(
+                onClick = onOpenFileClick,
+                hazeState = fabHazeState,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = fabEndPadding, bottom = fabBottomPadding),
+            )
+        }
 
         val bannerBottomPadding = if (adaptiveInfo.navigationLayout == NavigationLayout.BOTTOM_BAR) {
             96.dp
         } else {
             20.dp
         }
-        AnimatedVisibility(
-            visible = uiState.feedbackMessage != null,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = bannerBottomPadding),
-        ) {
-            val message = uiState.feedbackMessage.orEmpty()
-            GlassPill(
-                hazeState = screenHazeState,
-                elevated = true,
-                modifier = Modifier.clickable(role = Role.Button, onClick = onDismissFeedback),
+        GlassFloatingPortal(slotKey = "feedback") { toastHazeState ->
+            AnimatedVisibility(
+                visible = uiState.feedbackMessage != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = bannerBottomPadding),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                val message = uiState.feedbackMessage.orEmpty()
+                GlassPill(
+                    hazeState = toastHazeState,
+                    elevated = true,
+                    modifier = Modifier.clickable(role = Role.Button, onClick = onDismissFeedback),
                 ) {
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = palette.textPrimary,
-                    )
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = "Dismiss",
-                        tint = palette.textSecondary,
-                        modifier = Modifier.size(16.dp),
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = palette.textPrimary,
+                        )
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Dismiss",
+                            tint = palette.textSecondary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                 }
             }
         }
@@ -780,11 +779,14 @@ private fun ContinueWatchingCard(
                         .size(24.dp)
                         .align(Alignment.Center),
                 )
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
+                val imageRequest = remember(context, entry.uri) {
+                    ImageRequest.Builder(context)
                         .data(entry.uri)
-                        .crossfade(true)
-                        .build(),
+                        .crossfade(150)
+                        .build()
+                }
+                AsyncImage(
+                    model = imageRequest,
                     contentDescription = entry.displayName,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -1182,11 +1184,14 @@ private fun FolderCard(
                         .size(24.dp)
                         .align(Alignment.Center),
                 )
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
+                val imageRequest = remember(context, folder.previewUri) {
+                    ImageRequest.Builder(context)
                         .data(folder.previewUri)
-                        .crossfade(true)
-                        .build(),
+                        .crossfade(150)
+                        .build()
+                }
+                AsyncImage(
+                    model = imageRequest,
                     contentDescription = folder.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -1654,11 +1659,14 @@ private fun VideoCard(
                         .size(24.dp)
                         .align(Alignment.Center),
                 )
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
+                val imageRequest = remember(context, video.contentUri) {
+                    ImageRequest.Builder(context)
                         .data(video.contentUri)
-                        .crossfade(true)
-                        .build(),
+                        .crossfade(150)
+                        .build()
+                }
+                AsyncImage(
+                    model = imageRequest,
                     contentDescription = video.displayName,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

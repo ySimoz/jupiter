@@ -1,5 +1,6 @@
 package com.jupiter.app.core.shell
 
+import android.os.Build
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
@@ -99,6 +100,7 @@ import com.jupiter.app.core.designsystem.GlassSurface
 import com.jupiter.app.core.designsystem.JupiterColors
 import com.jupiter.app.core.designsystem.JupiterPalette
 import com.jupiter.app.core.designsystem.JupiterTheme
+import com.jupiter.app.core.designsystem.LocalChromeOverlayHost
 import com.jupiter.app.core.designsystem.LocalGlassOverlayHost
 import com.jupiter.app.core.designsystem.LocalGlassStyle
 import com.jupiter.app.core.designsystem.LocalJupiterPalette
@@ -160,8 +162,12 @@ fun MainShell(
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
+    val glassStyle = LocalGlassStyle.current
+    val supportsLiveBlur = glassStyle == GlassStyle.FROSTED &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val navHazeState = rememberHazeState()
     val overlayHazeState = rememberHazeState()
+    val chromeOverlayHost = remember(navHazeState) { GlassOverlayHostState(navHazeState) }
     val glassOverlayHost = remember(overlayHazeState) { GlassOverlayHostState(overlayHazeState) }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
@@ -246,26 +252,26 @@ fun MainShell(
 
     CompositionLocalProvider(
         LocalJupiterAdaptiveInfo provides adaptiveInfo,
+        LocalChromeOverlayHost provides chromeOverlayHost,
         LocalGlassOverlayHost provides glassOverlayHost,
     ) {
         Box(modifier = modifier.fillMaxSize()) {
+            val modalBlurModifier = if (!isPlayerRoute && supportsLiveBlur && glassOverlayHost.hasEntries) {
+                Modifier.hazeSource(state = overlayHazeState)
+            } else {
+                Modifier
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(
-                        if (isPlayerRoute) {
-                            Modifier
-                        } else {
-                            Modifier.hazeSource(state = overlayHazeState)
-                        },
-                    ),
+                    .then(modalBlurModifier),
             ) {
-                val backgroundModifier = if (isPlayerRoute) {
-                    Modifier.fillMaxSize()
-                } else {
+                val backgroundModifier = if (!isPlayerRoute && supportsLiveBlur) {
                     Modifier
                         .fillMaxSize()
                         .hazeSource(state = navHazeState)
+                } else {
+                    Modifier.fillMaxSize()
                 }
                 AmbientGlassBackground(
                     modifier = backgroundModifier,
@@ -362,6 +368,7 @@ fun MainShell(
                             }
                             CompositionLocalProvider(
                                 LocalJupiterPalette provides playerPalette,
+                                LocalChromeOverlayHost provides null,
                                 LocalGlassOverlayHost provides null,
                             ) {
                                 PlayerScreen(
@@ -381,6 +388,8 @@ fun MainShell(
                 }
 
                 if (!isPlayerRoute) {
+                    GlassOverlayHostLayer(host = chromeOverlayHost)
+
                     when (adaptiveInfo.navigationLayout) {
                         NavigationLayout.BOTTOM_BAR -> {
                             BottomGlassNavigationBar(
@@ -686,7 +695,7 @@ private fun DrawScope.drawNavGlassBubble(
 
         GlassStyle.CLEAR -> {
             drawRoundRect(
-                color = accentColor.copy(alpha = 0.14f + 0.04f * energy),
+                color = accentColor.copy(alpha = 0.24f + 0.04f * energy),
                 topLeft = topLeft,
                 size = bubbleSize,
                 cornerRadius = cornerRadius,

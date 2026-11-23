@@ -80,6 +80,7 @@ import com.jupiter.app.core.adaptive.LocalJupiterAdaptiveInfo
 import com.jupiter.app.core.adaptive.NavigationLayout
 import com.jupiter.app.core.designsystem.GlassDialog
 import com.jupiter.app.core.designsystem.GlassDropdownMenu
+import com.jupiter.app.core.designsystem.GlassFloatingPortal
 import com.jupiter.app.core.designsystem.GlassSurface
 import com.jupiter.app.core.designsystem.LocalJupiterPalette
 import com.jupiter.app.core.designsystem.LocalJupiterShapes
@@ -88,8 +89,6 @@ import com.jupiter.app.data.local.PlaylistSummary
 import com.jupiter.app.feature.player.QueueMediaItem
 import com.jupiter.app.feature.player.TimeFormatters
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
 
 @Composable
 fun PlaylistsScreen(
@@ -155,7 +154,6 @@ internal fun PlaylistsContent(
     }
 
     val selectedPlaylist = uiState.selectedPlaylist
-    val screenHazeState = rememberHazeState()
     Box(modifier = modifier.fillMaxSize()) {
         if (selectedPlaylist != null) {
             PlaylistDetailView(
@@ -181,9 +179,7 @@ internal fun PlaylistsContent(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = adaptiveInfo.gridMinColumnDp.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .hazeSource(state = screenHazeState),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = contentPadding,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -218,14 +214,16 @@ internal fun PlaylistsContent(
                 }
             }
 
-            CreatePlaylistFab(
-                onClick = onCreatePlaylistClick,
-                hazeState = screenHazeState,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    .padding(end = fabEndPadding, bottom = fabBottomPadding),
-            )
+            GlassFloatingPortal(slotKey = "fab") { fabHazeState ->
+                CreatePlaylistFab(
+                    onClick = onCreatePlaylistClick,
+                    hazeState = fabHazeState,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .navigationBarsPadding()
+                        .padding(end = fabEndPadding, bottom = fabBottomPadding),
+                )
+            }
         }
     }
 
@@ -287,11 +285,14 @@ private fun PlaylistCard(
                             .size(24.dp)
                             .align(Alignment.Center),
                     )
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
+                    val imageRequest = remember(context, playlist.previewUri) {
+                        ImageRequest.Builder(context)
                             .data(playlist.previewUri)
-                            .crossfade(true)
-                            .build(),
+                            .crossfade(150)
+                            .build()
+                    }
+                    AsyncImage(
+                        model = imageRequest,
                         contentDescription = playlist.name,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),

@@ -14,7 +14,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -392,48 +392,49 @@ fun AmbientGlassBackground(
                 if (glassStyle == GlassStyle.SOLID) {
                     Modifier
                 } else {
-                    Modifier.drawBehind {
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    verticalTopTint,
-                                    Color.Transparent,
-                                    verticalBottomTint,
-                                ),
+                    Modifier.drawWithCache {
+                        val verticalBrush = Brush.verticalGradient(
+                            colors = listOf(
+                                verticalTopTint,
+                                Color.Transparent,
+                                verticalBottomTint,
                             ),
                         )
-
                         val topStartCenter = Offset(x = size.width * 0.14f, y = size.height * 0.10f)
                         val bottomEndCenter = Offset(x = size.width * 0.88f, y = size.height * 0.86f)
                         val primaryRadius = maxOf(size.width, size.height) * 0.78f
                         val secondaryRadius = maxOf(size.width, size.height) * 0.70f
-
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    topStartLift,
-                                    topStartTint,
-                                    Color.Transparent,
-                                ),
-                                center = topStartCenter,
-                                radius = primaryRadius,
+                        val topStartBrush = Brush.radialGradient(
+                            colors = listOf(
+                                topStartLift,
+                                topStartTint,
+                                Color.Transparent,
                             ),
-                            radius = primaryRadius,
                             center = topStartCenter,
+                            radius = primaryRadius,
                         )
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    bottomEndTone,
-                                    bottomEndTint,
-                                    Color.Transparent,
-                                ),
-                                center = bottomEndCenter,
-                                radius = secondaryRadius,
+                        val bottomEndBrush = Brush.radialGradient(
+                            colors = listOf(
+                                bottomEndTone,
+                                bottomEndTint,
+                                Color.Transparent,
                             ),
-                            radius = secondaryRadius,
                             center = bottomEndCenter,
+                            radius = secondaryRadius,
                         )
+                        onDrawBehind {
+                            drawRect(brush = verticalBrush)
+                            drawCircle(
+                                brush = topStartBrush,
+                                radius = primaryRadius,
+                                center = topStartCenter,
+                            )
+                            drawCircle(
+                                brush = bottomEndBrush,
+                                radius = secondaryRadius,
+                                center = bottomEndCenter,
+                            )
+                        }
                     }
                 },
             ),
