@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="Jupiter — Native Android media player built on top of libmpv and Jetpack Compose">
+  <img src="./assets/readme/hero-card.svg" width="100%" alt="Jupiter — Native Android media player built on top of libmpv and Jetpack Compose">
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@
   <a href="#build-from-source">Build from Source</a>
 </p>
 
-Jupiter is a native Android media player built on a C11 JNI bridge to **libmpv** (`v0.42.0` + FFmpeg `9.0.2`) and a translucent **Jetpack Compose** interface for phones and tablets (`minSdk 29`).
+Native Android media player built on top of **libmpv** and **Jetpack Compose**.
 
 ---
 
