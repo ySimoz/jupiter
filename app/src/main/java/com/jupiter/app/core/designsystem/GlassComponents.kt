@@ -92,6 +92,7 @@ import kotlin.math.roundToInt
 internal class GlassOverlayEntry(
     val id: Long,
     val slotKey: String? = null,
+    val ownerKey: Any? = null,
     initialContent: @Composable BoxScope.() -> Unit,
 ) {
     var content: @Composable BoxScope.() -> Unit by mutableStateOf(initialContent)
@@ -102,6 +103,7 @@ class GlassOverlayHostState(
 ) {
     private var nextEntryId = 1L
     internal val entries: SnapshotStateList<GlassOverlayEntry> = mutableStateListOf()
+    var activeOwnerKey: Any? by mutableStateOf(null)
 
     val hasEntries: Boolean
         get() = entries.isNotEmpty()
@@ -117,30 +119,34 @@ class GlassOverlayHostState(
     internal fun remove(entry: GlassOverlayEntry) {
         entries.removeAll { it.id == entry.id }
     }
+
+    internal fun visibleEntries(): List<GlassOverlayEntry> {
+        val currentOwner = activeOwnerKey
+        val eligible = entries.filter { entry ->
+            currentOwner == null || entry.ownerKey == null || entry.ownerKey == currentOwner
+        }
+        val lastSlotEntryId = HashMap<String, Long>()
+        eligible.forEach { entry ->
+            entry.slotKey?.let { key -> lastSlotEntryId[key] = entry.id }
+        }
+        return eligible.filter { entry ->
+            val key = entry.slotKey
+            key == null || lastSlotEntryId[key] == entry.id
+        }
+    }
 }
 
 val LocalGlassOverlayHost = staticCompositionLocalOf<GlassOverlayHostState?> { null }
 val LocalChromeOverlayHost = staticCompositionLocalOf<GlassOverlayHostState?> { null }
+val LocalFloatingOwnerKey = staticCompositionLocalOf<Any?> { null }
 
 @Composable
 fun GlassOverlayHostLayer(
     host: GlassOverlayHostState,
     modifier: Modifier = Modifier,
 ) {
-    if (host.entries.isEmpty()) return
-    // When multiple entries share a slotKey (e.g. FAB during tab crossfade), show only the newest.
-    val visibleEntries = buildList(host.entries.size) {
-        val lastSlotEntryId = HashMap<String, Long>()
-        host.entries.forEach { entry ->
-            entry.slotKey?.let { key -> lastSlotEntryId[key] = entry.id }
-        }
-        host.entries.forEach { entry ->
-            val key = entry.slotKey
-            if (key == null || lastSlotEntryId[key] == entry.id) {
-                add(entry)
-            }
-        }
-    }
+    val visibleEntries = host.visibleEntries()
+    if (visibleEntries.isEmpty()) return
     Box(modifier = modifier.fillMaxSize()) {
         visibleEntries.forEach { entry ->
             key(entry.id) {
@@ -154,10 +160,16 @@ fun GlassOverlayHostLayer(
 internal fun GlassOverlayPortal(
     host: GlassOverlayHostState,
     slotKey: String? = null,
+    ownerKey: Any? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val entry = remember(host, slotKey) {
-        GlassOverlayEntry(id = host.nextId(), slotKey = slotKey, initialContent = content)
+    val entry = remember(host, slotKey, ownerKey) {
+        GlassOverlayEntry(
+            id = host.nextId(),
+            slotKey = slotKey,
+            ownerKey = ownerKey,
+            initialContent = content,
+        )
     }
     entry.content = content
     DisposableEffect(host, entry) {
@@ -172,10 +184,11 @@ fun BoxScope.GlassFloatingPortal(
     content: @Composable BoxScope.(hazeState: HazeState?) -> Unit,
 ) {
     val chromeHost = LocalChromeOverlayHost.current
+    val ownerKey = LocalFloatingOwnerKey.current
     if (chromeHost == null) {
         content(null)
     } else {
-        GlassOverlayPortal(host = chromeHost, slotKey = slotKey) {
+        GlassOverlayPortal(host = chromeHost, slotKey = slotKey, ownerKey = ownerKey) {
             content(chromeHost.hazeState)
         }
     }

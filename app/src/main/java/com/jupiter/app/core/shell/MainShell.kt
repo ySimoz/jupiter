@@ -101,6 +101,7 @@ import com.jupiter.app.core.designsystem.JupiterColors
 import com.jupiter.app.core.designsystem.JupiterPalette
 import com.jupiter.app.core.designsystem.JupiterTheme
 import com.jupiter.app.core.designsystem.LocalChromeOverlayHost
+import com.jupiter.app.core.designsystem.LocalFloatingOwnerKey
 import com.jupiter.app.core.designsystem.LocalGlassOverlayHost
 import com.jupiter.app.core.designsystem.LocalGlassStyle
 import com.jupiter.app.core.designsystem.LocalJupiterPalette
@@ -172,6 +173,10 @@ fun MainShell(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val isPlayerRoute = currentDestination?.hasRoute<PlayerRoute>() == true
+    val activeTopLevelDestination = TopLevelDestination.entries.firstOrNull {
+        currentDestination.isDestinationSelected(it)
+    } ?: if (currentDestination == null) TopLevelDestination.LIBRARY else null
+    chromeOverlayHost.activeOwnerKey = activeTopLevelDestination
 
     val contentPadding = rememberShellContentPadding(adaptiveInfo.navigationLayout)
 
@@ -318,39 +323,47 @@ fun MainShell(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         composable<LibraryRoute> {
-                            LibraryScreen(
-                                contentPadding = contentPadding,
-                                onOpenMedia = { uri, title ->
-                                    val isNetwork = uri.startsWith("http://", ignoreCase = true) ||
-                                        uri.startsWith("https://", ignoreCase = true) ||
-                                        uri.startsWith("rtsp://", ignoreCase = true)
-                                    openPlayer(uri, title, isNetwork, null)
-                                },
-                                onOpenQueue = { items, startIndex, sourceTitle ->
-                                    openQueue(items, startIndex, sourceTitle, QueueSourceKind.FOLDER)
-                                },
-                            )
+                            CompositionLocalProvider(LocalFloatingOwnerKey provides TopLevelDestination.LIBRARY) {
+                                LibraryScreen(
+                                    contentPadding = contentPadding,
+                                    onOpenMedia = { uri, title ->
+                                        val isNetwork = uri.startsWith("http://", ignoreCase = true) ||
+                                            uri.startsWith("https://", ignoreCase = true) ||
+                                            uri.startsWith("rtsp://", ignoreCase = true)
+                                        openPlayer(uri, title, isNetwork, null)
+                                    },
+                                    onOpenQueue = { items, startIndex, sourceTitle ->
+                                        openQueue(items, startIndex, sourceTitle, QueueSourceKind.FOLDER)
+                                    },
+                                )
+                            }
                         }
                         composable<PlaylistsRoute> {
-                            PlaylistsScreen(
-                                contentPadding = contentPadding,
-                                onOpenQueue = { items, startIndex, sourceTitle ->
-                                    openQueue(items, startIndex, sourceTitle, QueueSourceKind.PLAYLIST)
-                                },
-                            )
+                            CompositionLocalProvider(LocalFloatingOwnerKey provides TopLevelDestination.PLAYLISTS) {
+                                PlaylistsScreen(
+                                    contentPadding = contentPadding,
+                                    onOpenQueue = { items, startIndex, sourceTitle ->
+                                        openQueue(items, startIndex, sourceTitle, QueueSourceKind.PLAYLIST)
+                                    },
+                                )
+                            }
                         }
                         composable<StreamsRoute> {
-                            StreamsScreen(
-                                contentPadding = contentPadding,
-                                onOpenStream = { request ->
-                                    openPlayer(request.url, request.title, true, request.headersJson)
-                                },
-                            )
+                            CompositionLocalProvider(LocalFloatingOwnerKey provides TopLevelDestination.STREAMS) {
+                                StreamsScreen(
+                                    contentPadding = contentPadding,
+                                    onOpenStream = { request ->
+                                        openPlayer(request.url, request.title, true, request.headersJson)
+                                    },
+                                )
+                            }
                         }
                         composable<SettingsRoute> {
-                            SettingsScreen(
-                                contentPadding = contentPadding,
-                            )
+                            CompositionLocalProvider(LocalFloatingOwnerKey provides TopLevelDestination.SETTINGS) {
+                                SettingsScreen(
+                                    contentPadding = contentPadding,
+                                )
+                            }
                         }
                         composable<PlayerRoute>(
                             enterTransition = { EnterTransition.None },
